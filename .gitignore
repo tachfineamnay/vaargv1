@@ -1,0 +1,42 @@
+# Dependencies / build
+node_modules/
+.pnpm-store/
+.next/
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+*.tsbuildinfo
+playwright-report/
+test-results/
+*.log
+# Secrets and local-only material
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+private/
+local-data/
+backups/
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+# Private evidence / temporary files
+evidence-private/
+*.har
+*.trace.zip
+*.patch.local
+tmp/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
