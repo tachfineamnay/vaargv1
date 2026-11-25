@@ -1,0 +1,31 @@
+{
+  "name": "@vaargv1/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:ui": "vitest --ui"
+  },
+  "dependencies": {
+    "next": "16.5.0-canary.65",
+    "react": "19.3.0-canary-92bb0678-20261124",
+    "react-dom": "19.3.0-canary-92bb0678-20261124",
+    "@vaargv1/contracts": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.10",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.2",
+    "eslint": "10.15.0",
+    "eslint-config-next": "16.5.0-canary.65",
+    "vitest": "5.1.2",
+    "@vitest/ui": "5.1.2"
+  }
+}

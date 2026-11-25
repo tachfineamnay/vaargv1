@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    environment:
+      - WATCHPACK_POLLING=true
+    stdin_open: true
+    tty: true
+
+  web:
+    environment:
+      - WATCHPACK_POLLING=true
+      - NEXT_TELEMETRY_DISABLED=1
+    stdin_open: true
+    tty: true
+
+  worker:
+    environment:
+      - WATCHPACK_POLLING=true
+    stdin_open: true
+    tty: true

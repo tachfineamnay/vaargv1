@@ -2,11 +2,11 @@
 
 As of 2026-11-25: documentation bootstrap only. Source of truth for work is current Git HEAD and mission files. The bootstrap commit SHA is reported externally; do not embed a self-referential SHA.
 
-**Next mission: P00.** No runtime code or external test has been executed. GO BUILD after owner authorizes execution; NO-GO LIVE.
+**Current mission: P00 (IN_PROGRESS).** T01–T09 complete: all gates PASS_REAL. Source SHA: 14cb24a083fec83a3210d88bd1b1f942b716fb8e. GO BUILD after owner authorizes execution; NO-GO LIVE.
 
 | Mission | Implementation | Verification |
 |---|---|---|
-| P00 Bootstrap | TODO | NOT_RUN |
+| P00 Bootstrap | IN_PROGRESS (T01–T09 done, T10 finalizing) | PASS_REAL (all gates) |
 | P01 Core data / identity / isolation | TODO | NOT_RUN |
 | P02 Shopify / catalogue | TODO | NOT_RUN |
 | P03 Storefront / design | TODO | NOT_RUN |

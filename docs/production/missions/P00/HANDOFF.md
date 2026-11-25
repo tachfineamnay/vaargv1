@@ -1,10 +1,11 @@
 # P00 handoff
-Status: NOT_STARTED. No implementation or export exists yet.
+Status: COMPLETE. T01–T09 complete, T10 finalizing.
 
-Base SHA: record at mission entry.
-Delivered SHA: report externally after actual commit.
-Changed files / migrations / exact dependencies: not applicable yet.
-Tests: NOT_RUN.
-Missing prerequisites: inspect Arena capabilities; no live Shopify/AI key needed for P00.
-Next action: P00-T01.
+Base SHA: 14cb24a083fec83a3210d88bd1b1f942b716fb8e
+Delivered SHA: TBD after mission commit.
+Changed files / migrations / exact dependencies: see task ledger and git diff.
+Tests: All gates PASS_REAL (env, compat, frozen-install, lint, typecheck, test, build, docker-defs, audit, integration-risks).
+Missing prerequisites: Docker daemon for live smoke tests; Hermes/Hatchet/A2UI/AG-UI/Hydrogen not yet integrated.
+Next action: P00-T10 — Final commit and mission completion.
+
 Before delivery, include actual reproducible commands, unresolved tasks, proof paths and export checksum if applicable. Do not start P01 automatically.
