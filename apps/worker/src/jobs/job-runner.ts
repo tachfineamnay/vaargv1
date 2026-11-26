@@ -3,6 +3,8 @@ import type { Logger } from 'pino';
 export interface JobContext {
   jobId: string;
   attempt: number;
+  payload?: unknown;
+  signal?: AbortSignal;
 }
 
 export type JobHandler = (context: JobContext) => Promise<void>;
@@ -40,7 +42,7 @@ export class JobRunner {
         {
           job: name,
           jobId: context.jobId,
-          error: error instanceof Error ? error.message : 'Unknown failure',
+          error: 'Job execution failed',
         },
         'Job failed',
       );

@@ -28,3 +28,5 @@ Typecheck + build + unit tests all PASS_REAL.
 
 
 2026-11-26 — Source delivered at 7a0cd1de959422f5b58769df2a748468c11c538a; real DB integration remains NOT_RUN. For final local verification, start isolated PG18/Valkey, set authorized DATABASE_URL, run pnpm --filter @vaarg/persistence migrate and pnpm --filter @vaarg/persistence test with the real database. Consult VALIDATION.md for the reported gates. Next source mission: P02 on cumulative main when authorized. No separate transfer stage.
+
+2026-11-26 P02A: real PG18 regression suite repaired and passed under restricted test roles; RLS empty-context and composite tenant FK defects corrected via forward migrations. See ../P02A/PROGRESS.md and evidence. Release certification remains incomplete.

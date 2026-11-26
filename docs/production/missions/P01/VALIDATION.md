@@ -40,3 +40,8 @@ PRD SHA-256: `7e49d94144b4fd24b8968652664c354d5d8949946d9d9773c8314cbb630f8596`
 - Docker NOT available in sandbox → no real PostgreSQL 18 → all real DB gates
   NOT_RUN. Source + integration scripts delivered; Codex executes real Docker
   certification locally.
+
+## P02A remediation evidence (2026-11-26)
+The historical NOT_RUN entries above describe P01's original run. On base 3a3db51 plus P02A working changes, isolated PostgreSQL 18.7 regression tests using genuine restricted login roles passed; 11 inherited P01 tests and further P02A concurrency/rollback scenarios. See ../P02A/evidence/local-tests.md for exact commands, scope and remaining limitations. This is not full AC-24/28/29 certification.
+
+Final P02A combined PG18 run (including migration 0007 and populated upgrade): 26 tests passed, exit 0; details in ../P02A/VALIDATION.md. Migration 0007 is cluster-wide and requires provisioning a separate restricted login first.

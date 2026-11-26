@@ -2,6 +2,9 @@ import {
   livenessSchema,
   readinessSchema,
   versionSchema,
+  catalogHttpQuerySchema,
+  catalogResponseSchema,
+  type CatalogResponse,
   type Health,
   type Readiness,
   type Version,
@@ -15,6 +18,21 @@ export interface ApiStatus {
   readiness?: Readiness;
   version?: Version;
   error?: string;
+}
+
+/** Server-side catalog read; the API resolves the supplied public host. */
+export async function fetchCatalog(host: string, kind: 'products' | 'collections', options: { handle?: string; query?: Record<string, string> } = {}): Promise<CatalogResponse> {
+  if (!/^[a-z0-9.-]+(?::[0-9]{1,5})?$/i.test(host)) throw new Error('Invalid storefront host');
+  if (options.handle && !/^[a-z0-9][a-z0-9-]{0,254}$/.test(options.handle)) throw new Error('Invalid catalog handle');
+  catalogHttpQuerySchema.parse(options.query ?? {});
+  const query = new URLSearchParams(options.query).toString();
+  const response = await fetch(`${resolveApiBase()}/catalog/${kind}${options.handle ? `/${encodeURIComponent(options.handle)}` : ''}${query ? `?${query}` : ''}`, {
+    signal: AbortSignal.timeout(4000),
+    headers: { accept: 'application/json', host },
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Catalog API responded with HTTP ${response.status}`);
+  return catalogResponseSchema.parse(await response.json());
 }
 
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:4111';

@@ -12,6 +12,10 @@ import { loadApiConfiguration, type ApiConfiguration } from './infra/config.js';
   controllers: [HealthController, VersionController, CatalogController],
   providers: [
     {
+      provide: 'STOREFRONT_BINDINGS',
+      useFactory: async () => (await import('@vaarg/persistence')).loadStorefrontBindings(),
+    },
+    {
       provide: 'API_CONFIGURATION',
       useFactory: () => loadApiConfiguration(),
     },

@@ -9,8 +9,7 @@ export interface WebhookResult {
 
 /**
  * Receive a webhook event. Dedup is enforced by the unique index on
- * (store_id, provider, provider_event_id): a duplicate insert is caught and
- * reported as 'duplicate' rather than processed again.
+ * (store_id, provider, provider_event_id), without aborting the transaction.
  */
 export async function receiveWebhook(
   db: AppDb,
@@ -20,7 +19,6 @@ export async function receiveWebhook(
   eventType: string,
   payload: unknown,
 ): Promise<WebhookResult> {
-  try {
     const [row] = await db
       .insert(webhookInbox)
       .values({
@@ -30,16 +28,14 @@ export async function receiveWebhook(
         eventType,
         payload: JSON.stringify(payload),
       })
-      .returning({ inboxId: webhookInbox.inboxId, status: webhookInbox.status });
-    return { inboxId: row!.inboxId, status: 'received' };
-  } catch (error) {
-    // Unique violation → duplicate event.
-    const msg = (error as Error).message;
-    if (msg.includes('webhook_inbox_store_provider_event_uidx')) {
-      return { inboxId: '', status: 'duplicate' };
-    }
-    throw error;
-  }
+      .onConflictDoNothing({ target: [webhookInbox.storeId, webhookInbox.provider, webhookInbox.providerEventId] })
+      .returning({ inboxId: webhookInbox.inboxId });
+    if (row) return { inboxId: row.inboxId, status: 'received' };
+    const existing = await db.query.webhookInbox.findFirst({
+      where: and(eq(webhookInbox.storeId, storeId), eq(webhookInbox.provider, provider), eq(webhookInbox.providerEventId, providerEventId)),
+    });
+    if (!existing) throw new Error('WEBHOOK_DUPLICATE_NOT_VISIBLE');
+    return { inboxId: existing.inboxId, status: 'duplicate' };
 }
 
 /** Mark a webhook processed. */

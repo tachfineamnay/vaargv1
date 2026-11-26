@@ -65,16 +65,17 @@ export const idempotencyKeys = pgTable(
       .references(() => stores.storeId, { onDelete: 'cascade' }),
     scope: idempotencyScopeEnum('scope').notNull(),
     principal: varchar('principal', { length: 200 }).notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
     payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
     response: text('response'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('idempotency_keys_scope_principal_hash_uidx').on(
+    uniqueIndex('idempotency_keys_scope_principal_key_uidx').on(
       table.storeId,
       table.scope,
       table.principal,
-      table.payloadHash,
+      table.idempotencyKey,
     ),
   ],
 );

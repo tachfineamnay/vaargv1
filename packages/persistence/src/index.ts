@@ -15,3 +15,11 @@ export * from './services/webhook-inbox.js';
 export * from './services/idempotency.js';
 export * from './services/audit.js';
 export * from './validation/schemas.js';
+
+export * from './commerce/shopify.js';
+export * from './commerce/import.js';
+export * from './commerce/webhook.js';
+export * from './commerce/store-config.js';
+export * from './commerce/rate-limit.js';
+export * from './commerce/execution.js';
+export * from './commerce/delegation.js';

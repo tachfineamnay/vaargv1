@@ -8,6 +8,7 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 
 export const storeStatusEnum = pgEnum('store_status', ['active', 'suspended', 'archived']);
@@ -55,6 +56,7 @@ export const merchantUsers = pgTable(
   },
   (table) => [
     uniqueIndex('merchant_users_store_email_uidx').on(table.storeId, table.email),
+    uniqueIndex('merchant_users_store_user_uidx').on(table.storeId, table.merchantUserId),
     index('merchant_users_store_idx').on(table.storeId),
   ],
 );
@@ -80,9 +82,24 @@ export const storeMemberships = pgTable(
   },
   (table) => [
     uniqueIndex('store_memberships_store_user_uidx').on(table.storeId, table.merchantUserId),
+    foreignKey({ name: 'store_memberships_store_user_fk', columns: [table.storeId, table.merchantUserId], foreignColumns: [merchantUsers.storeId, merchantUsers.merchantUserId] }).onDelete('cascade'),
     index('store_memberships_store_role_idx').on(table.storeId, table.role),
   ],
 );
+
+export const merchantSessions = pgTable('merchant_sessions', {
+  sessionId: uuid('session_id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').notNull().references(() => stores.storeId, { onDelete: 'cascade' }),
+  merchantUserId: uuid('merchant_user_id').notNull().references(() => merchantUsers.merchantUserId, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  status: text('status').notNull().default('active'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  rotatedFrom: uuid('rotated_from'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex('merchant_sessions_store_token_uidx').on(table.storeId, table.tokenHash),
+  foreignKey({ name: 'merchant_sessions_store_user_fk', columns: [table.storeId, table.merchantUserId], foreignColumns: [merchantUsers.storeId, merchantUsers.merchantUserId] }).onDelete('cascade'),
+]);
 
 /**
  * customers — internal customer identity, store-scoped.
@@ -102,6 +119,7 @@ export const customers = pgTable(
   },
   (table) => [
     uniqueIndex('customers_store_external_uidx').on(table.storeId, table.externalId),
+    uniqueIndex('customers_store_customer_uidx').on(table.storeId, table.customerId),
     index('customers_store_idx').on(table.storeId),
   ],
 );
@@ -132,6 +150,7 @@ export const customerIdentities = pgTable(
       table.subject,
     ),
     index('customer_identities_store_customer_idx').on(table.storeId, table.customerId),
+    foreignKey({ name: 'customer_identities_store_customer_fk', columns: [table.storeId, table.customerId], foreignColumns: [customers.storeId, customers.customerId] }).onDelete('cascade'),
   ],
 );
 

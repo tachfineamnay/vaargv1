@@ -86,5 +86,5 @@ if (isMain) {
     process.exit(2);
   }
   const result = await runMigrations(conn);
-  console.log(JSON.stringify(result, null, 2));
+  console.info(JSON.stringify(result, null, 2));
 }

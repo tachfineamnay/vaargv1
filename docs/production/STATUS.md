@@ -47,3 +47,8 @@ P00 live Docker gates remain pending for final Codex certification. Continue Are
 - **Checkpoints**: `docs/production/missions/P01/` (MISSION, TASKS, PROGRESS, DECISIONS,
   VALIDATION, evidence).
 - **Next**: P02 in Arena on the cumulative branch, when authorized. Real PostgreSQL 18 + Valkey certification remains pending for final Codex validation.
+
+## P02A — foundation consolidation (2026-11-26)
+Source base 3a3db51722b02f292da57fe02bddbe2f206f5d3d plus P02 a4ea19cf76e7cca2d2d44853aab2cf90a8491fed source, local working tree on codex/p02a-foundation. IN_PROGRESS: core DB/session/idempotency/inbox remediation implemented; focused isolated PG18 restricted-role tests passed. P02 catalog HTTP is NOT_CONFIGURED and merchant/visitor HTTP session integration is absent; real Shopify and clean-install gates NOT_RUN; web smoke BLOCKED by automatic approval rejection. No release certification. See missions/P02A for checkpoints and evidence. Next: trusted store/domain binding and secure HTTP session integration, then rerun blocked gates.
+
+P02A postscript: migration 0007 disables direct login and removes the inherited password from cluster-wide vaarg_app; restricted login roles must be provisioned before upgrading. Final six-file synthetic PG18 regression: 26 passed. Assess any shared-cluster impact before any future authorized migration.

@@ -12,13 +12,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { execSync } from 'node:child_process';
 
-const DATABASE_URL = process.env.DATABASE_URL ?? '';
+const DATABASE_URL = process.env.P01_TEST_DATABASE_URL ?? '';
+if (DATABASE_URL) { const parsed = new URL(DATABASE_URL); if (!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) || parsed.pathname !== '/vaarg_p01_test') throw new Error('A dedicated local test database is required'); }
 
 // Whether we can actually run against a real PostgreSQL.
 const PG_AVAILABLE = (() => {
   if (!DATABASE_URL) return false;
   try {
-    const ping = execSync(
+    execSync(
       `node -e "const {Pool}=require('pg');const p=new Pool({connectionString:process.env.DATABASE_URL,connectionTimeoutMillis:2000});p.query('SELECT 1').then(()=>{p.end();process.exit(0)}).catch(()=>process.exit(1))"`,
       {
         env: { ...process.env, DATABASE_URL },
@@ -50,17 +51,31 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
     url: string;
     name: string;
     cleanup: () => Promise<void>;
+    runtime: () => Promise<Pool>;
   }> {
     const name = `vaarg_p01_test_${Math.random().toString(36).slice(2, 12)}`;
-    // Drop if exists, create fresh.
-    await adminPool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
     await adminPool.query(`CREATE DATABASE ${name}`);
     const url = `${DATABASE_URL.replace(/\/[^/]+$/, '')}/${name}`;
+    const role = `p02a_${Math.random().toString(36).slice(2, 12)}`;
+    let runtimePool: Pool | undefined;
+    let roleCreated = false;
     return {
       url,
       name,
+      runtime: async () => {
+        await adminPool.query(`CREATE ROLE ${role} LOGIN INHERIT PASSWORD 'synthetic_test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`);
+        roleCreated = true;
+        await adminPool.query(`GRANT vaarg_app TO ${role}`);
+        const runtimeUrl = new URL(url);
+        runtimeUrl.username = role;
+        runtimeUrl.password = 'synthetic_test_password';
+        runtimePool = new Pool({ connectionString: runtimeUrl.toString(), max: 4 });
+        return runtimePool;
+      },
       cleanup: async () => {
-        await adminPool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+        await runtimePool?.end();
+        await adminPool.query(`DROP DATABASE IF EXISTS ${name}`);
+        if (roleCreated) await adminPool.query(`DROP ROLE ${role}`);
       },
     };
   }
@@ -70,7 +85,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
     try {
       const pool = new Pool({ connectionString: url, max: 2 });
       // Run migrations via the runner.
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       const result = await runMigrations(url);
       expect(result.applied.length).toBeGreaterThan(0);
       // Verify tables exist.
@@ -83,9 +98,8 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
       expect(names).toContain('idempotency_keys');
       // Verify RLS is enabled on tenant tables.
       const rls = await pool.query(
-        `SELECT tablename FROM pg_tables
-         WHERE schemaname='public' AND relrowsecurity = true
-         ORDER BY tablename`,
+        `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname='public' AND c.relrowsecurity = true ORDER BY c.relname`,
       );
       expect(rls.rows.length).toBeGreaterThan(0);
       await pool.end();
@@ -98,7 +112,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
       const pool = new Pool({ connectionString: url, max: 2 });
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       // First run.
       await runMigrations(url);
       // Second run should be a no-op (idempotent).
@@ -112,31 +126,31 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   });
 
   it('enforces cross-store access rejection via RLS (AC-24)', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { seedSyntheticStores } = await import('../src/services/seed.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
-      // Seed as maintenance (direct, no GUC).
-      await seedSyntheticStores(handle);
+      const scopedHandle = createDb(await runtime());
+      await pool.query("INSERT INTO stores(slug,name) VALUES ('synthetic-a','A'),('synthetic-b','B')");
+      await pool.query("INSERT INTO customers(store_id,email) SELECT store_id, slug || '@synthetic.test' FROM stores");
 
       // Get the two store ids.
       const all = await handle.db.query.stores.findMany();
       const [storeA, storeB] = all;
 
       // Read store A's customers within store A context — should see rows.
-      const { customers } = await import('../src/schema/identity.js');
-      const aCustomers = await withStoreContext(handle, storeA.storeId, async (tx) =>
+      const { customers } = await import('../../src/schema/identity.js');
+      const aCustomers = await withStoreContext(scopedHandle, storeA.storeId, async (tx) =>
         tx.query.customers.findMany(),
       );
       expect(aCustomers.length).toBeGreaterThan(0);
 
       // Read store A's customers within store B context — RLS must hide them.
-      const bCustomers = await withStoreContext(handle, storeB.storeId, async (tx) =>
+      const bCustomers = await withStoreContext(scopedHandle, storeB.storeId, async (tx) =>
         tx.query.customers.findMany(),
       );
       // Store B has its own customers, but must NOT see store A's.
@@ -146,18 +160,9 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
 
       // Cross-store insert: insert store A's customer under store B context
       // must be rejected by the WITH CHECK policy.
-      const crossInsert = await withStoreContext(handle, storeB.storeId, async (tx) => {
-        try {
-          await tx.insert(customers).values({
-            storeId: storeA.storeId,
-            externalId: 'cross-store-attack',
-          });
-          return { ok: true };
-        } catch {
-          return { ok: false };
-        }
-      });
-      expect(crossInsert.ok).toBe(false);
+      await expect(withStoreContext(scopedHandle, storeB.storeId, async (tx) => {
+        await tx.insert(customers).values({ storeId: storeA.storeId, externalId: 'cross-store-attack' });
+      })).rejects.toThrow();
 
       await pool.end();
     } finally {
@@ -168,10 +173,10 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('enforces cross-store foreign key rejection', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb } = await import('../src/db/client.js');
-      const { stores, customerIdentities } = await import('../src/schema/identity.js');
+      const { createDb } = await import('../../src/db/client.js');
+      const { stores, customerIdentities } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -185,6 +190,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
         .insert(stores)
         .values({ slug: 'store-b', name: 'B' })
         .returning();
+      const customer = await pool.query('INSERT INTO customers(store_id) VALUES ($1) RETURNING customer_id', [storeA!.storeId]);
 
       // Attempt a customer_identity that references store A's customer from
       // a store B context — the FK on customer_id must reject a cross-store
@@ -193,7 +199,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
         .insert(customerIdentities)
         .values({
           storeId: storeB!.storeId,
-          customerId: '00000000-0000-0000-0000-000000000000', // nonexistent
+          customerId: customer.rows[0].customer_id,
           issuer: 'test',
           subject: 'x',
         })
@@ -208,20 +214,15 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   });
 
   it('enforces RLS on the restricted runtime role (no bypass)', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { stores } = await import('../src/schema/identity.js');
-
-      // Connect as the restricted vaarg_app role.
-      const appUrl = url.replace(
-        /\/\/[^:]+:[^@]+@/,
-        '//vaarg_app:vaarg_app_runtime_password@',
-      );
-      const pool = new Pool({ connectionString: appUrl, max: 2 });
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      // Each test gets a genuine restricted role inheriting the application grants.
+      const pool = await runtime();
       const handle = createDb(pool);
+      const scopedHandle = handle;
 
       // Insert a store as maintenance first (need a store to scope to).
       const adminPool = new Pool({ connectionString: url, max: 1 });
@@ -234,7 +235,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
       await adminPool.end();
 
       // As vaarg_app with store context set, can read.
-      const visible = await withStoreContext(handle, store.store_id, async (tx) =>
+      const visible = await withStoreContext(scopedHandle, store.store_id, async (tx) =>
         tx.query.stores.findMany(),
       );
       expect(visible.length).toBeGreaterThan(0);
@@ -243,28 +244,29 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
       const denied = await handle.db.query.stores.findMany();
       expect(denied).toHaveLength(0);
 
-      await pool.end();
+      // Runtime pool is closed by cleanup.
     } finally {
       await cleanup();
     }
   });
 
   it('enforces merchant role boundaries', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
       const {
         stores,
         merchantUsers,
         storeMemberships,
-      } = await import('../src/schema/identity.js');
-      const { authenticateMerchant } = await import('../src/auth/merchant-auth.js');
-      const { createArgon2Hash } = await import('../src/auth/passwords.js');
+      } = await import('../../src/schema/identity.js');
+      const { authenticateMerchant } = await import('../../src/auth/merchant-auth.js');
+      const { createArgon2Hash } = await import('../../src/auth/passwords.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
+      const scopedHandle = createDb(await runtime());
 
       const [store] = await handle.db
         .insert(stores)
@@ -288,14 +290,14 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
       });
 
       // Real authentication: correct password succeeds.
-      const auth = await withStoreContext(handle, store!.storeId, (tx: any) =>
+      const auth = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         authenticateMerchant(tx, store!.storeId, 'owner@rbac.test', 'CorrectHorse!2026'),
       );
       expect(auth).not.toBeNull();
       expect(auth!.role).toBe('owner');
 
       // Wrong password fails.
-      const bad = await withStoreContext(handle, store!.storeId, (tx: any) =>
+      const bad = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         authenticateMerchant(tx, store!.storeId, 'owner@rbac.test', 'wrong'),
       );
       expect(bad).toBeNull();
@@ -307,49 +309,50 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   });
 
   it('handles session expiration and rotation', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
       const {
         createVisitorSession,
         resolveVisitorSession,
         rotateVisitorSession,
-      } = await import('../src/sessions/visitor-sessions.js');
-      const { stores } = await import('../src/schema/identity.js');
+      } = await import('../../src/sessions/visitor-sessions.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
+      const scopedHandle = createDb(await runtime());
       const [store] = await handle.db
         .insert(stores)
         .values({ slug: 'sess-store', name: 'Sess' })
         .returning();
 
       // Create a session with short TTL.
-      const { sessionId, token } = await withStoreContext(handle, store!.storeId, (tx) =>
+      const { sessionId, token } = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         createVisitorSession(tx, store!.storeId, null, 'default', 1000),
       );
       expect(sessionId).toBeTruthy();
 
       // Resolve the active session.
-      const resolved = await withStoreContext(handle, store!.storeId, (tx) =>
+      const resolved = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         resolveVisitorSession(tx, store!.storeId, token),
       );
       expect(resolved).not.toBeNull();
 
       // Rotate: old token should no longer resolve, new one should.
-      const rotated = await withStoreContext(handle, store!.storeId, (tx) =>
+      const rotated = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         rotateVisitorSession(tx, store!.storeId, token, 1000),
       );
       expect(rotated).not.toBeNull();
 
-      const oldResolved = await withStoreContext(handle, store!.storeId, (tx) =>
+      const oldResolved = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         resolveVisitorSession(tx, store!.storeId, token),
       );
       expect(oldResolved).toBeNull();
 
-      const newResolved = await withStoreContext(handle, store!.storeId, (tx) =>
+      const newResolved = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         resolveVisitorSession(tx, store!.storeId, rotated!.token),
       );
       expect(newResolved).not.toBeNull();
@@ -361,16 +364,17 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   });
 
   it('records and enforces consent changes', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { recordConsent, getConsent } = await import('../src/services/consent.js');
-      const { stores, customers } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { recordConsent, getConsent } = await import('../../src/services/consent.js');
+      const { stores, customers } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
+      const scopedHandle = createDb(await runtime());
       const [store] = await handle.db
         .insert(stores)
         .values({ slug: 'consent-store', name: 'Consent' })
@@ -380,19 +384,19 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
         .values({ storeId: store!.storeId, email: 'c@consent.test' })
         .returning();
 
-      await withStoreContext(handle, store!.storeId, async (tx) => {
+      await withStoreContext(scopedHandle, store!.storeId, async (tx) => {
         await recordConsent(tx, store!.storeId, customer!.customerId, 'marketing_email', true, 'user_action');
       });
-      const granted = await withStoreContext(handle, store!.storeId, (tx) =>
+      const granted = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         getConsent(tx, store!.storeId, customer!.customerId, 'marketing_email'),
       );
       expect(granted).toBe(true);
 
       // Revoke consent.
-      await withStoreContext(handle, store!.storeId, async (tx) => {
+      await withStoreContext(scopedHandle, store!.storeId, async (tx) => {
         await recordConsent(tx, store!.storeId, customer!.customerId, 'marketing_email', false, 'user_action');
       });
-      const revoked = await withStoreContext(handle, store!.storeId, (tx) =>
+      const revoked = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         getConsent(tx, store!.storeId, customer!.customerId, 'marketing_email'),
       );
       expect(revoked).toBe(false);
@@ -404,16 +408,17 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   });
 
   it('deduplicates concurrent idempotent operations', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { claimIdempotencyKey } = await import('../src/services/idempotency.js');
-      const { stores } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { claimIdempotencyKey } = await import('../../src/services/idempotency.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
+      const scopedHandle = createDb(await runtime());
       const [store] = await handle.db
         .insert(stores)
         .values({ slug: 'idem-store', name: 'Idem' })
@@ -422,22 +427,22 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
       const payload = { action: 'create_order', orderId: 'o_1' };
 
       // First claim.
-      const first = await withStoreContext(handle, store!.storeId, (tx) =>
-        claimIdempotencyKey(tx, store!.storeId, 'order', 'merchant-1', payload),
+      const first = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
+        claimIdempotencyKey(tx, store!.storeId, 'order', 'merchant-1', 'key-1', payload),
       );
-      expect(first.reused).toBe(false);
+      expect(first.status).toBe('claimed');
 
       // Second claim with same key+payload → reused.
-      const second = await withStoreContext(handle, store!.storeId, (tx) =>
-        claimIdempotencyKey(tx, store!.storeId, 'order', 'merchant-1', payload),
+      const second = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
+        claimIdempotencyKey(tx, store!.storeId, 'order', 'merchant-1', 'key-1', payload),
       );
-      expect(second.reused).toBe(true);
+      expect(second.status).toBe('pending');
 
       // Different payload → new claim.
-      const third = await withStoreContext(handle, store!.storeId, (tx) =>
-        claimIdempotencyKey(tx, store!.storeId, 'order', 'merchant-1', { action: 'create_order', orderId: 'o_2' }),
+      const third = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
+        claimIdempotencyKey(tx, store!.storeId, 'order', 'merchant-1', 'key-1', { action: 'create_order', orderId: 'o_2' }),
       );
-      expect(third.reused).toBe(false);
+      expect(third.status).toBe('conflict');
 
       await pool.end();
     } finally {
@@ -446,36 +451,37 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   });
 
   it('replays webhook inbox with dedup and rolls back outbox', async () => {
-    const { url, cleanup } = await createIsolatedDb();
+    const { url, cleanup, runtime } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { receiveWebhook } = await import('../src/services/webhook-inbox.js');
-      const { appendOutboxEvent, markEventDispatched } = await import('../src/services/outbox.js');
-      const { stores } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { receiveWebhook } = await import('../../src/services/webhook-inbox.js');
+      const { appendOutboxEvent, markEventDispatched } = await import('../../src/services/outbox.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
+      const scopedHandle = createDb(await runtime());
       const [store] = await handle.db
         .insert(stores)
         .values({ slug: 'webhook-store', name: 'Webhook' })
         .returning();
 
       // First receipt.
-      const first = await withStoreContext(handle, store!.storeId, (tx) =>
+      const first = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         receiveWebhook(tx, store!.storeId, 'stripe', 'evt_1', 'payment', { id: 1 }),
       );
       expect(first.status).toBe('received');
 
       // Replay (duplicate) — dedup.
-      const replay = await withStoreContext(handle, store!.storeId, (tx) =>
+      const replay = await withStoreContext(scopedHandle, store!.storeId, (tx) =>
         receiveWebhook(tx, store!.storeId, 'stripe', 'evt_1', 'payment', { id: 1 }),
       );
       expect(replay.status).toBe('duplicate');
 
       // Outbox: append event, then mark dispatched (same tx pattern).
-      const eventId = await withStoreContext(handle, store!.storeId, async (tx) => {
+      const eventId = await withStoreContext(scopedHandle, store!.storeId, async (tx) => {
         const id = await appendOutboxEvent(tx, store!.storeId, 'order.created', { orderId: 'o_1' });
         await markEventDispatched(tx, store!.storeId, id);
         return id;

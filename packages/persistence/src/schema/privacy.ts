@@ -8,6 +8,7 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 import { stores, customers } from './identity.js';
 
@@ -61,6 +62,7 @@ export const consentRecords = pgTable(
   },
   (table) => [
     index('consent_records_store_customer_idx').on(table.storeId, table.customerId),
+    foreignKey({ name: 'consent_records_store_customer_fk', columns: [table.storeId, table.customerId], foreignColumns: [customers.storeId, customers.customerId] }).onDelete('cascade'),
     index('consent_records_store_purpose_idx').on(table.storeId, table.purpose),
   ],
 );
@@ -85,6 +87,7 @@ export const marketingPermissions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({ name: 'marketing_permissions_store_customer_fk', columns: [table.storeId, table.customerId], foreignColumns: [customers.storeId, customers.customerId] }).onDelete('cascade'),
     uniqueIndex('marketing_permissions_store_customer_purpose_uidx').on(
       table.storeId,
       table.customerId,
@@ -114,6 +117,7 @@ export const privacyRequests = pgTable(
   },
   (table) => [
     index('privacy_requests_store_customer_idx').on(table.storeId, table.customerId),
+    foreignKey({ name: 'privacy_requests_store_customer_fk', columns: [table.storeId, table.customerId], foreignColumns: [customers.storeId, customers.customerId] }).onDelete('cascade'),
   ],
 );
 

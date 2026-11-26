@@ -1,4 +1,4 @@
-import { eq, and, lt } from 'drizzle-orm';
+import { eq, and, lt, sql } from 'drizzle-orm';
 import { visitorSessions } from '../schema/experience.js';
 import { generateSessionToken, hashToken } from '../auth/merchant-auth.js';
 import type { AppDb } from '../db/client.js';
@@ -50,18 +50,12 @@ export async function resolveVisitorSession(
     where: and(
       eq(visitorSessions.storeId, storeId),
       eq(visitorSessions.tokenHash, tokenHash),
+      eq(visitorSessions.status, 'active'),
+      sql`${visitorSessions.expiresAt} > now()`,
     ),
   });
   if (!session) return null;
 
-  // Expiry check: expired sessions are marked and treated as absent.
-  if (session.expiresAt.getTime() <= Date.now() && session.status === 'active') {
-    await db
-      .update(visitorSessions)
-      .set({ status: 'expired' })
-      .where(eq(visitorSessions.sessionId, session.sessionId));
-    return null;
-  }
   return session;
 }
 
@@ -75,37 +69,22 @@ export async function rotateVisitorSession(
   oldToken: string,
   ttlMs: number = SESSION_TTL_MS,
 ): Promise<{ sessionId: string; token: string; expiresAt: Date } | null> {
-  const oldHash = hashToken(oldToken);
-  const oldSession = await db.query.visitorSessions.findFirst({
-    where: and(
-      eq(visitorSessions.storeId, storeId),
-      eq(visitorSessions.tokenHash, oldHash),
-    ),
-  });
-  if (!oldSession || oldSession.status !== 'active') return null;
-
   const token = generateSessionToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + ttlMs);
-
-  await db
-    .update(visitorSessions)
-    .set({ status: 'rotated' })
-    .where(eq(visitorSessions.sessionId, oldSession.sessionId));
-
-  const [session] = await db
-    .insert(visitorSessions)
-    .values({
-      storeId,
-      customerId: oldSession.customerId,
-      tokenHash,
-      context: oldSession.context,
-      expiresAt,
-      rotatedFrom: oldSession.sessionId,
-    })
-    .returning();
-
-  return { sessionId: session!.sessionId, token, expiresAt };
+  const result = await db.execute<{ session_id: string }>(sql`
+    WITH old AS (
+      UPDATE visitor_sessions SET status = 'rotated', updated_at = now()
+      WHERE store_id = ${storeId} AND token_hash = ${hashToken(oldToken)}
+        AND status = 'active' AND expires_at > now()
+      RETURNING session_id, store_id, customer_id, context
+    )
+    INSERT INTO visitor_sessions (store_id, customer_id, token_hash, context, expires_at, rotated_from)
+    SELECT store_id, customer_id, ${tokenHash}, context, ${expiresAt}, session_id FROM old
+    RETURNING session_id
+  `);
+  const session = result.rows[0];
+  return session ? { sessionId: session.session_id, token, expiresAt } : null;
 }
 
 /** Revoke a session by id (within store scope). */

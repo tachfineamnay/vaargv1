@@ -1,6 +1,7 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolClient } from 'pg';
 import * as schema from '../schema/index.js';
+import { uuidSchema } from '../validation/schemas.js';
 
 /** Base database type shared by pool- and client-bound Drizzle instances. */
 export type AppDb = NodePgDatabase<typeof schema>;
@@ -38,6 +39,21 @@ export function createPool(connectionString: string, opts?: { max?: number }): P
   });
 }
 
+/** Refuse identities that can bypass RLS, including through role membership. */
+export async function assertRestrictedRole(client: PoolClient): Promise<void> {
+  const role = await client.query<{ unsafe: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1 FROM pg_roles r
+      WHERE (r.rolname IN (current_user, session_user) OR pg_has_role(current_user, r.oid, 'MEMBER'))
+        AND (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb)
+    ) OR EXISTS (
+      SELECT 1 FROM pg_class c
+      WHERE c.relrowsecurity AND pg_has_role(current_user, c.relowner, 'MEMBER')
+    ) AS unsafe
+  `);
+  if (role.rows[0]?.unsafe !== false) throw new Error('UNSAFE_DATABASE_ROLE');
+}
+
 /**
  * Execute `fn` inside a store-scoped transaction. The store context is set
  * with SET LOCAL, which is transaction-scoped: it is visible to the RLS
@@ -50,19 +66,25 @@ export async function withStoreContext<T>(
   storeId: string,
   fn: (tx: AppDb) => Promise<T>,
 ): Promise<T> {
+  uuidSchema.parse(storeId);
   const client = await handle.pool.connect();
+  let discard = false;
   try {
+    await client.query(`RESET ${STORE_CONTEXT_GUC}`);
     await client.query('BEGIN');
-    await client.query(`SET LOCAL ${STORE_CONTEXT_GUC} = $1`, [storeId]);
+    await assertRestrictedRole(client);
+    await client.query('SELECT set_config($1, $2, true)', [STORE_CONTEXT_GUC, storeId]);
     const tx = drizzle(client, { schema });
     const result = await fn(tx);
-    await client.query('COMMIT');
+    const commit = await client.query('COMMIT');
+    if (commit.command !== 'COMMIT') throw new Error('TRANSACTION_NOT_COMMITTED');
     return result;
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    try { await client.query('ROLLBACK'); } catch { discard = true; }
     throw error;
   } finally {
-    client.release();
+    try { await client.query(`RESET ${STORE_CONTEXT_GUC}`); } catch { discard = true; }
+    client.release(discard);
   }
 }
 

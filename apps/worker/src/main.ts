@@ -1,47 +1,6 @@
-import pino from 'pino';
 import type { DependencyStatus } from '@vaarg/shared';
-import { WorkerDependencies, type DependencyReport } from './infra/dependencies.js';
 import { loadWorkerConfiguration } from './infra/worker-config.js';
-import { JobRunner } from './jobs/job-runner.js';
-
-export interface WorkerRuntime {
-  logger: pino.Logger;
-  dependencies: WorkerDependencies;
-  runner: JobRunner;
-  report(): Promise<DependencyReport>;
-  shutdown(): Promise<void>;
-}
-
-export async function createWorkerRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<WorkerRuntime> {
-  const configuration = loadWorkerConfiguration(env);
-  const logger = pino({
-    level: configuration.app.logLevel,
-    formatters: { level: (label) => ({ level: label }) },
-    redact: {
-      paths: ['*.apiKey', '*.api_key', '*.token', '*.password'],
-      censor: '[redacted]',
-    },
-  });
-
-  const dependencies = new WorkerDependencies(configuration, logger);
-  const report = await dependencies.check();
-  logger.info(report, 'Worker dependency readiness');
-
-  const runner = new JobRunner([], logger);
-
-  return {
-    logger,
-    dependencies,
-    runner,
-    report: () => dependencies.check(),
-    shutdown: async () => {
-      logger.info('Worker shutting down');
-      await dependencies.close();
-    },
-  };
-}
+import { createWorkerRuntime } from './worker-runtime.js';
 
 async function bootstrap(): Promise<void> {
   const configuration = loadWorkerConfiguration();

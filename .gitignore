@@ -40,3 +40,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.example.json
+
+# Local development artifacts
+/.p02-source/
+/.worktrees/
+/P02-checkpoint-*/

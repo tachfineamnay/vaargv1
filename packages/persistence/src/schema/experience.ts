@@ -6,6 +6,7 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 import { stores, customers } from './identity.js';
 
@@ -40,6 +41,7 @@ export const visitorSessions = pgTable(
   },
   (table) => [
     uniqueIndex('visitor_sessions_store_token_hash_uidx').on(table.storeId, table.tokenHash),
+    foreignKey({ name: 'visitor_sessions_store_customer_fk', columns: [table.storeId, table.customerId], foreignColumns: [customers.storeId, customers.customerId] }),
     index('visitor_sessions_store_status_idx').on(table.storeId, table.status),
     index('visitor_sessions_store_customer_idx').on(table.storeId, table.customerId),
   ],

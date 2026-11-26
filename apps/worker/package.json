@@ -17,6 +17,7 @@
     "clean": "rm -rf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@vaarg/persistence": "workspace:*",
     "@vaarg/shared": "workspace:*",
     "ioredis": "6.1.0",
     "pg": "8.23.1",

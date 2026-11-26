@@ -1,0 +1,18 @@
+# P02A local validation evidence
+Environment: Windows, Node v24.21.0, pnpm 10.15.0, Docker Engine 29.8.1; isolated PostgreSQL 18.7 with pgvector, synthetic data. Tested source base 3a3db51722b02f292da57fe02bddbe2f206f5d3d plus uncommitted P02/P02A changes; exact changed-file hashes are in the exported snapshot manifest. No production credentials or data.
+
+- `pnpm install --frozen-lockfile`: exit 0, lifecycle scripts enabled; existing workspace and package cache reused, so a clean-directory fresh install is NOT_RUN.
+- `pnpm lint`: exit 0 before the final scoped database changes; `pnpm --filter @vaarg/persistence lint` exit 0 after those changes.
+- `pnpm typecheck`: exit 0 before the final scoped database changes; `pnpm --filter @vaarg/persistence typecheck` exit 0 after those changes.
+- `pnpm test`: exit 0, 30 persistence tests passed with 23 skipped; other workspace package tests passed. This run did not enable DB/real Shopify or live API variables. Later affected persistence checks below were rerun.
+- `pnpm build`: exit 0 before final persistence-only changes; `pnpm --filter @vaarg/persistence build` exit 0 after those changes.
+- `P01_TEST_DATABASE_URL=<isolated> P02A_TEST_DATABASE_URL=<isolated> P02_TEST_DATABASE_URL=<isolated> P02_MIGRATION_TEST_URL=<isolated> pnpm --filter @vaarg/persistence exec vitest run test/integration/isolation.test.ts test/integration/p02a.test.ts test/catalog-import.test.ts test/p01-context.test.ts test/idempotency-canonical.test.ts --testTimeout 30000 --no-file-parallelism`: exit 0, 24 tests. Restricted test login roles and actual PostgreSQL; Shopify responses synthetic. Scoped scenarios only, not complete AC-24 certification.
+- `P02_UPGRADE_TEST_URL=<isolated> P02_TEST_DATABASE_URL=<isolated> P02_MIGRATION_TEST_URL=<isolated> pnpm --filter @vaarg/persistence exec vitest run test/catalog-import.test.ts test/catalog-upgrade.test.ts test/p01-context.test.ts --testTimeout 30000 --no-file-parallelism`: exit 0, 3 tests; populated P01 migration through 0006 preserved store and a legacy idempotency row.
+- `API_TEST_URL=<isolated local API> pnpm --filter @vaarg/api exec vitest run test/api.e2e.test.ts`: exit 0, 4 tests; real API and PG18, Redis 7 used as a Valkey-compatible test double. Does not test merchant HTTP login or catalog projection.
+- `API_SMOKE_URL=<isolated local API> WEB_SMOKE_URL=<local web> pnpm smoke`: exit 1; API live/ready/version passed, web connection refused. Automatic approval review rejected starting the local web server without stating a specific reason. Web smoke is BLOCKED, not passed.
+- `git diff --check`: exit 0, tracked diff; untracked mission source inspected separately.
+- Real Shopify, trusted tenant/domain resolution, public catalog projection and auth/cookie integration, Valkey itself, clean install, full certification and deployment: NOT_RUN or NOT_IMPLEMENTED. No release GO.
+
+Red evidence: invalid tenant/unsafe-role tests, nested payload hash collision, concurrent idempotency unique violation, concurrent webhook duplicate, rotated visitor session resolution, revoked merchant membership, missing merchant session resolver, empty RLS context, cross-tenant FK, swallowed SQL-error commit and RLS-table owner role were observed failing before their respective fixes. See VALIDATION.md for command details and historical outcomes.
+
+Latest expanded isolated PG18 regression and populated upgrade through 0007: exit 0, 26 tests across six files; command in VALIDATION.md. Final affected persistence typecheck/lint exit 0. Migration 0007 changes vaarg_app to NOLOGIN/passwordless at PostgreSQL cluster scope; provision separate restricted login roles before applying it. Source/upgrade validation does not authorize applying it to an existing shared cluster.

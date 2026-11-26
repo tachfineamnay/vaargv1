@@ -7,7 +7,6 @@ import {
 } from '../schema/identity.js';
 import { createArgon2Hash } from '../auth/passwords.js';
 import type { DbHandle } from '../db/client.js';
-import { withStoreContext } from '../db/client.js';
 
 /**
  * Seed two independent synthetic stores. Each gets an owner merchant user,
@@ -49,38 +48,21 @@ export async function seedSyntheticStores(handle: DbHandle): Promise<{
       continue;
     }
 
-    const [store] = await handle.db
-      .insert(stores)
-      .values({ slug: def.slug, name: def.name })
-      .returning();
-    if (!store) throw new Error(`Failed to create store ${def.slug}`);
-    created.push(store.storeId);
-
-    await withStoreContext(handle, store.storeId, async (tx) => {
+    // This is a maintenance-only synthetic seed; the store and its children
+    // are committed together and never run through the runtime-role boundary.
+    const storeId = await handle.db.transaction(async (tx) => {
+      const [store] = await tx.insert(stores).values({ slug: def.slug, name: def.name }).returning();
+      if (!store) throw new Error(`Failed to create store ${def.slug}`);
       const passwordHash = await createArgon2Hash('SyntheticOwner!2026');
-      const [owner] = await tx
-        .insert(merchantUsers)
-        .values({
-          storeId: store.storeId,
-          email: def.ownerEmail,
-          passwordHash,
-          displayName: def.ownerName,
-        })
-        .returning();
+      const [owner] = await tx.insert(merchantUsers).values({
+        storeId: store.storeId, email: def.ownerEmail, passwordHash, displayName: def.ownerName,
+      }).returning();
       if (!owner) throw new Error(`Failed to create owner for ${def.slug}`);
-
-      await tx.insert(storeMemberships).values({
-        storeId: store.storeId,
-        merchantUserId: owner.merchantUserId,
-        role: 'owner',
-      });
-
-      await tx.insert(customers).values({
-        storeId: store.storeId,
-        externalId: def.customerExternalId,
-        email: def.customerEmail,
-      });
+      await tx.insert(storeMemberships).values({ storeId: store.storeId, merchantUserId: owner.merchantUserId, role: 'owner' });
+      await tx.insert(customers).values({ storeId: store.storeId, externalId: def.customerExternalId, email: def.customerEmail });
+      return store.storeId;
     });
+    created.push(storeId);
   }
 
   return { storesCreated: created, skipped };

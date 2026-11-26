@@ -3,6 +3,7 @@ import { withTimeout } from './timeout.js';
 
 export class ValkeyClient {
   private client: Redis | undefined;
+  private rateClient: Redis | undefined;
 
   constructor(
     private readonly connectionUrl: string,
@@ -23,6 +24,15 @@ export class ValkeyClient {
     return this.client;
   }
 
+  /** Unprefixed connection shared by every Shopify execution boundary. */
+  getRateClient(): Redis {
+    if (!this.rateClient) {
+      this.rateClient = new Redis(this.connectionUrl, { maxRetriesPerRequest: 0, connectTimeout: 5000 });
+      this.rateClient.on('error', () => undefined);
+    }
+    return this.rateClient;
+  }
+
   async ping(timeoutMs: number): Promise<void> {
     const response = await withTimeout(
       this.getClient().ping(),
@@ -35,6 +45,8 @@ export class ValkeyClient {
   }
 
   async close(): Promise<void> {
+    this.rateClient?.disconnect();
+    this.rateClient = undefined;
     if (this.client) {
       try {
         await this.client.quit();
