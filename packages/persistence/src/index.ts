@@ -25,3 +25,7 @@ export * from './commerce/store-config.js';
 export * from './commerce/rate-limit.js';
 export * from './commerce/execution.js';
 export * from './commerce/delegation.js';
+export * from './commerce/catalog-projection.js';
+export * from './commerce/catalog-read.js';
+export * from './commerce/scope.js';
+export * from './commerce/knowledge.js';
