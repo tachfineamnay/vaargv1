@@ -1,30 +1,25 @@
-# VAARG V1 — production infrastructure.
-# Same images as development; no ports published, no host socket, no privileged
-# containers. All services on a private internal network. Configuration and
-# secrets are supplied through the deployment environment (.env), never here.
-name: vaarg-prod
-
+# Coolify: attach its reverse proxy to the edge network and route to web:3000.
+# No ports, domains, credentials or platform identifiers are assumed here.
 services:
   postgres:
     image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Set maintenance PostgreSQL user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set maintenance PostgreSQL password}
+      POSTGRES_DB: ${POSTGRES_DB:?Set database name}
     volumes:
       - vaarg_pg_prod:/var/lib/postgresql
       - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     shm_size: '256mb'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 15s
-    networks:
-      - vaarg-internal
-    # No ports published in production.
+      retries: 12
+      start_period: 20s
+    networks: [private]
+    stop_grace_period: 1m
 
   valkey:
     image: valkey/valkey:8-alpine
@@ -34,13 +29,114 @@ services:
       test: ['CMD', 'valkey-cli', 'ping']
       interval: 10s
       timeout: 5s
-      retries: 10
-    networks:
-      - vaarg-internal
+      retries: 12
+    networks: [private]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: 'no'
+    command: ['node', 'node_modules/@vaarg/persistence/dist/db/migrate.js']
+    environment:
+      MAINTENANCE_DATABASE_URL: ${MAINTENANCE_DATABASE_URL:?Set maintenance database URL}
+      DATABASE_URL: ${DATABASE_URL:?Set restricted runtime database URL}
+      MIGRATION_ALLOW_CLUSTER_ROLE_CHANGE: ${MIGRATION_ALLOW_CLUSTER_ROLE_CHANGE:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [private]
+    stop_grace_period: 1m
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '4111'
+      APP_VERSION: ${APP_VERSION:?Set source revision}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL:?Set restricted runtime database URL}
+      VALKEY_URL: redis://valkey:6379
+      STOREFRONT_BINDINGS_JSON: ${STOREFRONT_BINDINGS_JSON:-[]}
+      SHOPIFY_STOREFRONT_TOKEN: ${SHOPIFY_STOREFRONT_TOKEN:-}
+      CATALOG_JOB_SIGNING_SECRET: ${CATALOG_JOB_SIGNING_SECRET:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4111/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 7s
+      retries: 4
+      start_period: 20s
+    expose: ['4111']
+    networks: [private, edge]
+    stop_grace_period: 30s
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      APP_VERSION: ${APP_VERSION:?Set source revision}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL:?Set restricted runtime database URL}
+      VALKEY_URL: redis://valkey:6379
+      WORKER_REQUIRE_READY: 'true'
+      WORKER_PORT: '5010'
+      STOREFRONT_BINDINGS_JSON: ${STOREFRONT_BINDINGS_JSON:-[]}
+      SHOPIFY_STOREFRONT_TOKEN: ${SHOPIFY_STOREFRONT_TOKEN:-}
+      CATALOG_JOB_SIGNING_SECRET: ${CATALOG_JOB_SIGNING_SECRET:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5010/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 7s
+      retries: 4
+      start_period: 20s
+    networks: [private, edge]
+    stop_grace_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: '3000'
+      APP_VERSION: ${APP_VERSION:?Set source revision}
+      API_BASE_URL: http://api:4111
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 7s
+      retries: 4
+      start_period: 20s
+    expose: ['3000']
+    networks: [edge]
+    stop_grace_period: 30s
 
 networks:
-  vaarg-internal:
-    driver: bridge
+  private:
+    internal: true
+  edge:
 
 volumes:
   vaarg_pg_prod:

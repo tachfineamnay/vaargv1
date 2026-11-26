@@ -34,7 +34,7 @@ async function bootstrap(): Promise<void> {
       : `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     request.headers[REQUEST_ID_HEADER] = requestId;
     reply.header(REQUEST_ID_HEADER, requestId);
-    logger.info({ method: request.method, url: request.url, requestId }, 'request');
+    logger.info({ method: request.method, requestId }, 'request');
   });
 
   app.useGlobalFilters(new ApiExceptionFilter());
@@ -43,7 +43,10 @@ async function bootstrap(): Promise<void> {
   const port = configuration.app.port;
   const host = configuration.app.host;
   await app.listen(port, host);
-  logger.info({ host, port, nodeEnv: configuration.app.nodeEnv }, 'VAARG API listening');
+  logger.info({ host, port, nodeEnv: configuration.app.nodeEnv, revision: process.env.APP_VERSION }, 'VAARG API listening');
 }
 
-void bootstrap();
+void bootstrap().catch(() => {
+  console.error(JSON.stringify({ event: 'api_startup_failed' }));
+  process.exitCode = 1;
+});

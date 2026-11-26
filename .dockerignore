@@ -9,3 +9,11 @@ coverage
 .env.*
 !.env.example
 docs
+**/.env
+**/.env.*
+**/.turbo
+**/.next
+**/coverage
+**/*.tsbuildinfo
+.graphify*
+graphify-out

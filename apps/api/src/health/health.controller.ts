@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Res } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import {
   versionSchema,
   type Health,
@@ -37,8 +38,10 @@ export class HealthController {
   }
 
   @Get('ready')
-  async ready(): Promise<Readiness> {
-    return this.readinessService.build('api', appVersion());
+  async ready(@Res({ passthrough: true }) reply: FastifyReply): Promise<Readiness> {
+    const result = await this.readinessService.build('api', appVersion());
+    if (result.status !== 'ready') reply.status(503);
+    return result;
   }
 }
 

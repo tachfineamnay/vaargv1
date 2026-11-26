@@ -44,6 +44,10 @@ export class ValkeyClient {
     }
   }
 
+  async onApplicationShutdown(): Promise<void> {
+    await this.close();
+  }
+
   async close(): Promise<void> {
     this.rateClient?.disconnect();
     this.rateClient = undefined;
