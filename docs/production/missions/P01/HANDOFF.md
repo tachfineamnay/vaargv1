@@ -3,6 +3,7 @@
 **Mission**: P01 — CORE DATA, IDENTITY AND ISOLATION
 **Status**: SOURCE DELIVERED (stop after P01 source delivery per mission)
 **Base (P00 merged)**: `2385a06d49976305fefa59c8d188357720a659e1`
+**Delivered SHA (P01 commit)**: `7a0cd1de959422f5b58769df2a748468c11c538a`
 **Branch**: `arena/c1eaf44b-vaargv1`
 
 ## Delivered
