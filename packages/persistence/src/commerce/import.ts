@@ -2,32 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import type { CommerceContext, CommercePort } from './shopify.js';
-import { assertRestrictedRole } from '../db/client.js';
 import { catalogResponseSchema, type CatalogResponse } from '@vaarg/shared';
+import { applyCatalogPage, reconcileCatalogGeneration } from './catalog-projection.js';
+import { scopedCatalogTransaction as scoped } from './scope.js';
 
 const inputSchema = z.object({ storeId: z.uuid(), country: z.string().regex(/^[A-Z]{2}$/), language: z.string().regex(/^[A-Z]{2,3}$/) });
 type ImportInput = z.infer<typeof inputSchema>;
 type ImportRow = { generation: string; phase: 'products' | 'collections' | 'complete'; cursor: string | null; started_at: Date; completed_at: Date | null; cursor_history: string[] };
-async function scoped<T>(pool: Pool, input: ImportInput, action: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  let discard = false;
-  try {
-    await client.query('RESET app.store_id');
-    await client.query('BEGIN');
-    await assertRestrictedRole(client);
-    await client.query("SELECT set_config('app.store_id', $1, true)", [input.storeId]);
-    const result = await action(client);
-    const commit = await client.query('COMMIT');
-    if (commit.command !== 'COMMIT') throw new Error('TRANSACTION_NOT_COMMITTED');
-    return result;
-  } catch (error) {
-    try { await client.query('ROLLBACK'); } catch { discard = true; }
-    throw error;
-  } finally {
-    try { await client.query('RESET app.store_id'); } catch { discard = true; }
-    client.release(discard);
-  }
-}
 async function jobReceipt(client: PoolClient, input: ImportInput, jobId: string, action: 'start' | 'step'): Promise<ImportRow | null> {
   const receipt = (await client.query<ImportRow & { country: string; language: string; action: string }>('SELECT generation,phase,cursor,cursor_history,started_at,completed_at,country,language,action FROM catalog_job_receipts WHERE store_id=$1 AND job_id=$2', [input.storeId,jobId])).rows[0];
   if (!receipt) return null;
@@ -67,8 +48,14 @@ export async function importCatalogPage(pool: Pool, commerce: CommercePort, raw:
       for (const item of page.items) {
         await client.query(`INSERT INTO catalog_projection(store_id,country,language,kind,shopify_id,payload,seen_generation,visible,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,true,now()) ON CONFLICT (store_id,country,language,kind,shopify_id) DO UPDATE SET payload=EXCLUDED.payload,seen_generation=EXCLUDED.seen_generation,visible=true,observed_at=now()`, [...args, current.phase === 'products' ? 'product' : 'collection', item.id, JSON.stringify(item), current.generation]);
       }
+      // Same-transaction normalized projection: a failed apply rolls the
+      // checkpoint back, so an interrupted import stays exactly resumable.
+      await applyCatalogPage(client, input, current.phase === 'products' ? 'products' : 'collections', current.generation, page.items);
       const phase = page.nextCursor !== null ? current.phase : current.phase === 'products' ? 'collections' : 'complete';
-      if (phase === 'complete') await client.query('UPDATE catalog_projection SET visible=false WHERE store_id=$1 AND country=$2 AND language=$3 AND seen_generation<>$4', [...args, current.generation]);
+      if (phase === 'complete') {
+        await client.query('UPDATE catalog_projection SET visible=false WHERE store_id=$1 AND country=$2 AND language=$3 AND seen_generation<>$4', [...args, current.generation]);
+        await reconcileCatalogGeneration(client, input, current.generation);
+      }
       const updated = await client.query<ImportRow>(`UPDATE catalog_imports SET phase=$4,cursor=$5,cursor_history=CASE WHEN $5::text IS NULL THEN ARRAY[]::text[] ELSE array_append(cursor_history,$5::text) END,completed_at=CASE WHEN $4='complete' THEN now() ELSE NULL END,lease_token=NULL,lease_until=NULL WHERE store_id=$1 AND country=$2 AND language=$3 AND lease_token=$6 RETURNING generation,phase,cursor,cursor_history,started_at,completed_at`, [...args, phase, page.nextCursor, token]);
       if (!updated.rows[0]) throw new Error('IMPORT_LEASE_LOST');
       if (signal?.aborted) throw new Error('CANCELLED');
