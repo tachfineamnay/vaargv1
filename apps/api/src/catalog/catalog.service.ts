@@ -1,13 +1,38 @@
-import { BadRequestException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
-import { createHash, randomUUID } from 'node:crypto';
-import { catalogDelegationRequestSchema, catalogDelegationResponseSchema, catalogHttpQuerySchema, catalogResponseSchema, catalogSyncResponseSchema, merchantLoginRequestSchema, merchantLoginResponseSchema, type CatalogResponse } from '@vaarg/shared';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import {
+  catalogDelegationRequestSchema,
+  catalogDelegationResponseSchema,
+  catalogHttpQuerySchema,
+  catalogResponseSchema,
+  catalogSyncResponseSchema,
+  merchantLoginResponseSchema,
+  type CatalogResponse,
+} from '@vaarg/shared';
 import type { StorefrontBinding } from '@vaarg/persistence';
 import { DatabaseClient } from '../infra/database-client.js';
 import { ValkeyClient } from '../infra/valkey-client.js';
+import { MerchantAuthService } from '../identity/merchant-auth.service.js';
 
 @Injectable()
 export class CatalogService {
-  constructor(@Inject(DatabaseClient) private readonly database: DatabaseClient, @Inject('STOREFRONT_BINDINGS') private readonly bindings: StorefrontBinding[], @Inject(ValkeyClient) private readonly valkey: ValkeyClient) {}
+  private readonly merchantAuth: MerchantAuthService;
+
+  constructor(
+    @Inject(DatabaseClient) private readonly database: DatabaseClient,
+    @Inject('STOREFRONT_BINDINGS') private readonly bindings: StorefrontBinding[],
+    @Inject(ValkeyClient) private readonly valkey: ValkeyClient,
+  ) {
+    // Same identity engine as the /v1 identity module — no second
+    // authentication implementation for catalog operations.
+    this.merchantAuth = new MerchantAuthService(database, bindings, valkey);
+  }
 
   async list(query: unknown, host: unknown, kind: 'product' | 'collection', handle?: string): Promise<CatalogResponse> {
     const parsed = catalogHttpQuerySchema.safeParse(query ?? {});
@@ -31,13 +56,10 @@ export class CatalogService {
 
   private async authorize(host: unknown, authorization: unknown) {
     const persistence = await import('@vaarg/persistence');
-    const binding = persistence.resolveStorefront(this.bindings, host);
-    if (!binding) throw new NotFoundException('Unknown storefront');
-    const match = typeof authorization === 'string' ? /^Bearer ([A-Za-z0-9_-]{43})$/.exec(authorization) : null;
-    if (!match) throw new UnauthorizedException();
-    const identity = await persistence.withStoreContext(persistence.createDb(this.database.getPool()), binding.storeId, tx => persistence.resolveMerchantSession(tx, binding.storeId, match[1]!));
-    if (!identity || identity.storeId !== binding.storeId) throw new UnauthorizedException();
-    if (!['owner', 'marketing'].includes(identity.role)) throw new ForbiddenException();
+    const { binding, identity } = await this.merchantAuth.authorizeMerchant(
+      host,
+      typeof authorization === 'string' ? authorization : undefined,
+    );
     return { binding, identity, persistence };
   }
 
@@ -53,33 +75,16 @@ export class CatalogService {
     return catalogDelegationResponseSchema.parse({ jobId, ticket, expiresAt: new Date(expiresAt).toISOString() });
   }
 
+  /** Legacy login contract: same identity engine, bearer token response. */
   async login(host: unknown, origin: unknown, body: unknown) {
-    const parsed = merchantLoginRequestSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException('Invalid credentials');
-    const persistence = await import('@vaarg/persistence');
-    const binding = persistence.resolveStorefront(this.bindings, host);
-    if (!binding) throw new NotFoundException('Unknown storefront');
-    if (origin !== `https://${binding.host}`) throw new ForbiddenException();
-    const digest = createHash('sha256').update(parsed.data.email.toLowerCase()).digest('hex');
-    const key = `vaarg:{${binding.storeId}}:merchant-login:${digest}`;
-    let attempts: unknown;
-    try { attempts = await this.valkey.getRateClient().eval("local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],300) end; return n", 1, key); }
-    catch { throw new ServiceUnavailableException('Authentication unavailable'); }
-    if (typeof attempts !== 'number' || !Number.isInteger(attempts)) throw new ServiceUnavailableException('Authentication unavailable');
-    if (attempts > 5) throw new HttpException('Too many attempts', 429);
-    const user = await persistence.withStoreContext(persistence.createDb(this.database.getPool()), binding.storeId, tx => persistence.authenticateMerchant(tx, binding.storeId, parsed.data.email, parsed.data.password));
-    if (!user) throw new UnauthorizedException();
-    return merchantLoginResponseSchema.parse({ token: user.token });
+    const result = await this.merchantAuth.login(host, origin, body);
+    return merchantLoginResponseSchema.parse({ token: result.token });
   }
 
   async logout(host: unknown, authorization: unknown) {
-    const persistence = await import('@vaarg/persistence');
-    const binding = persistence.resolveStorefront(this.bindings, host);
-    if (!binding) throw new NotFoundException('Unknown storefront');
-    const match = typeof authorization === 'string' ? /^Bearer ([A-Za-z0-9_-]{43})$/.exec(authorization) : null;
-    if (!match) throw new UnauthorizedException();
-    const revoked = await persistence.withStoreContext(persistence.createDb(this.database.getPool()), binding.storeId, tx => persistence.revokeMerchantSession(tx, binding.storeId, match[1]!));
-    if (!revoked) throw new UnauthorizedException();
-    return { status: 'revoked' as const };
+    return this.merchantAuth.logout(
+      host,
+      typeof authorization === 'string' ? authorization : undefined,
+    );
   }
 }

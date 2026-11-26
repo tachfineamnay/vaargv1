@@ -7,6 +7,8 @@ export * from './auth/merchant-auth.js';
 export * from './sessions/visitor-sessions.js';
 export * from './sessions/valkey/session-store.js';
 export * from './sessions/valkey/memory-session-store.js';
+export * from './sessions/visitor-session-cache.js';
+export * from './tenant/tenant-context.js';
 export * from './services/stores.js';
 export * from './services/seed.js';
 export * from './services/consent.js';

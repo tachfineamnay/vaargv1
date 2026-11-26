@@ -17,7 +17,9 @@ async function bootstrap(): Promise<void> {
     AppModule,
     new FastifyAdapter({
       logger: false,
-      trustProxy: true,
+      // Explicit trusted-proxy boundary: forwarded headers are only
+      // trusted when the operator enables TRUST_PROXY behind a proxy.
+      trustProxy: configuration.http.trustProxy,
     }),
     { logger: false },
   );

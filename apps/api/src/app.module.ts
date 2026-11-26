@@ -1,48 +1,42 @@
 import { Module } from '@nestjs/common';
-import { CatalogController } from './catalog/catalog.controller.js';
-import { CatalogService } from './catalog/catalog.service.js';
 import { HealthController, VersionController } from './health/health.controller.js';
 import { ApiReadinessProbes } from './health/api-readiness-probes.js';
 import { HealthService, ReadinessService } from './health/health.service.js';
 import { DatabaseClient } from './infra/database-client.js';
 import { ValkeyClient } from './infra/valkey-client.js';
-import { loadApiConfiguration, type ApiConfiguration } from './infra/config.js';
+import { InfraModule } from './infra/infra.module.js';
+import { TenantModule } from './tenant/tenant.module.js';
+import { IdentityModule } from './identity/identity.module.js';
+import { SessionsModule } from './sessions/sessions.module.js';
+import { PrivacyModule } from './privacy/privacy.module.js';
+import { CatalogModule } from './catalog/catalog.module.js';
 
+/**
+ * Application composition root. Functional boundaries live in explicit
+ * modules: infra (clients/config), tenant (trusted context), identity
+ * (merchant auth + guards), sessions (visitor lifecycle), privacy
+ * (consent) and catalog (projection/sync). Health probes stay at the
+ * root alongside the version endpoint.
+ */
 @Module({
-  controllers: [HealthController, VersionController, CatalogController],
+  imports: [
+    InfraModule,
+    TenantModule,
+    IdentityModule,
+    SessionsModule,
+    PrivacyModule,
+    CatalogModule,
+  ],
+  controllers: [HealthController, VersionController],
   providers: [
-    {
-      provide: 'STOREFRONT_BINDINGS',
-      useFactory: async () => (await import('@vaarg/persistence')).loadStorefrontBindings(),
-    },
-    {
-      provide: 'API_CONFIGURATION',
-      useFactory: () => loadApiConfiguration(),
-    },
-    {
-      provide: DatabaseClient,
-      useFactory: (configuration: ApiConfiguration) =>
-        new DatabaseClient(configuration.database.url, configuration.database.readinessTimeoutMs),
-      inject: ['API_CONFIGURATION'],
-    },
-    {
-      provide: ValkeyClient,
-      useFactory: (configuration: ApiConfiguration) =>
-        new ValkeyClient(configuration.valkey.url, configuration.valkey.keyPrefix),
-      inject: ['API_CONFIGURATION'],
-    },
     {
       provide: ApiReadinessProbes,
       useFactory: (
         database: DatabaseClient,
         valkey: ValkeyClient,
-        configuration: ApiConfiguration,
+        configuration: { valkey: { readinessTimeoutMs: number } },
       ) =>
-        new ApiReadinessProbes(
-          database,
-          valkey,
-          configuration.valkey.readinessTimeoutMs,
-        ),
+        new ApiReadinessProbes(database, valkey, configuration.valkey.readinessTimeoutMs),
       inject: [DatabaseClient, ValkeyClient, 'API_CONFIGURATION'],
     },
     {
@@ -51,7 +45,6 @@ import { loadApiConfiguration, type ApiConfiguration } from './infra/config.js';
       inject: [ApiReadinessProbes],
     },
     HealthService,
-    CatalogService,
   ],
 })
 export class AppModule {}
