@@ -1,12 +1,10 @@
 # Production status — VAARG̈ V1
 
-As of 2026-11-25: documentation bootstrap only. Source of truth for work is current Git HEAD and mission files. The bootstrap commit SHA is reported externally; do not embed a self-referential SHA.
-
-**Next mission: P00.** No runtime code or external test has been executed. GO BUILD after owner authorizes execution; NO-GO LIVE.
+As of 2026-11-26: P00 industrial bootstrap IMPLEMENTED and locally certified (frozen install, lint, typecheck, tests, build, live smoke all PASS_REAL). Docker/live-provider gates remain NOT_RUN and are executed by the external Codex harness.
 
 | Mission | Implementation | Verification |
 |---|---|---|
-| P00 Bootstrap | TODO | NOT_RUN |
+| P00 Bootstrap | DONE | PASS_LOCAL_SOURCE (Docker/live NOT_RUN) |
 | P01 Core data / identity / isolation | TODO | NOT_RUN |
 | P02 Shopify / catalogue | TODO | NOT_RUN |
 | P03 Storefront / design | TODO | NOT_RUN |
@@ -19,7 +17,13 @@ As of 2026-11-25: documentation bootstrap only. Source of truth for work is curr
 | P10 Certification | TODO | NOT_RUN |
 | P11 Deployment | TODO | NOT_RUN |
 
-## Pending external prerequisites
-Arena runtime/terminal/Git/export capability, exact package versions, reference mockups, authorized Storefront token, Admin/Customer Account and historical orders access, engraving/markets, direct Gemini/DeepSeek key and limits, Hermes isolation and transport, email/domain/permissions, local Docker and deployment resources, licensing and data policies. None prevents beginning independent P00 work.
+## P00 delivered
+- pnpm/Turbo monorepo, strict TS 5.9.3, frozen lockfile.
+- @vaarg/shared Zod 4.6.7 contracts (9 tests).
+- @vaarg/api NestJS 12/Fastify 5: /health, /health/ready, /version, /catalog (live HTTP 200).
+- @vaarg/web Next.js 16/React 19 SSR (4 tests, standalone HTTP 200).
+- @vaarg/worker real entrypoint with explicit dependency readiness (6 tests).
+- docker-compose (PostgreSQL 18 + Valkey 8), 3 Dockerfiles, .env.example, certify.sh + smoke.mjs.
 
-Update after each increment with mission, source revision, status, verified evidence links, unresolved blockers and next exact action. Only report a delivered SHA after the commit actually exists.
+## Next exact action
+Codex: real Docker certification (compose up, build images, confirm /health/ready ready against live DB+Valkey). No P01 without instruction.
