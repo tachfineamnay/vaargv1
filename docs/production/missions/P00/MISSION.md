@@ -1,8 +1,4 @@
-# P00 — Industrial bootstrap
-
-Status: TODO. Source SHA: fill with actual checked-out HEAD at mission entry (not this documentation commit's parent).
-Normative inputs: [PRD](../../../product/PRD.md), [ROADMAP P00](../../ROADMAP.md), [AGENTS](../../../../AGENTS.md), [P00 prompt](../../prompts/P00.md). Verify [source manifest](../../SOURCE_MANIFEST.md).
-
-Implement actual runnable web/API/worker boundaries, shared Zod contracts, strict TypeScript, reproducible pnpm/Turbo, frozen install, build/lint/typecheck/test/smoke, safe example configuration, Docker development and healthchecks. Pin stable compatible releases. Record Arena capabilities and local verification commands. Examine integration requirements without claiming live compatibility. No P01 data migrations, business features, real credentials or deployment. AC-28/29 partial evidence only.
-
-Do not replace the exact PRD/roadmap or create empty package stubs. Complete TASKS before implementation. Stop at P00 delivery.
+# P00 clean industrial rebuild
+Source: b0943dd8cd87626cc7c8ac20979eedc830a3d5e9
+PRD SHA256: 7E49D94144B4FD24B8968652664C354D5D8949946D9D9773C8314CBB630F8596
+Scope: rebuild P00 from baseline, executable web/API/worker, shared contracts, exact stable compatible dependencies, real local validation G01-G16. No previous application code, P01, pushes or deployments. PRD and roadmap invariants remain authoritative.

@@ -23,3 +23,5 @@ As of 2026-11-25: documentation bootstrap only. Source of truth for work is curr
 Arena runtime/terminal/Git/export capability, exact package versions, reference mockups, authorized Storefront token, Admin/Customer Account and historical orders access, engraving/markets, direct Gemini/DeepSeek key and limits, Hermes isolation and transport, email/domain/permissions, local Docker and deployment resources, licensing and data policies. None prevents beginning independent P00 work.
 
 Update after each increment with mission, source revision, status, verified evidence links, unresolved blockers and next exact action. Only report a delivered SHA after the commit actually exists.
+
+2026-11-26: P00 clean rebuild IN_PROGRESS; root workspace only. Certification NOT_RUN. See missions/P00.

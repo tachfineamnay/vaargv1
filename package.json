@@ -1,0 +1,16 @@
+{
+  "name": "vaarg",
+  "private": true,
+  "packageManager": "pnpm@10.6.1",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "2.11.13",
+    "typescript": "5.9.3"
+  }
+}

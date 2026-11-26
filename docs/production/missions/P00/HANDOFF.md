@@ -1,10 +1,2 @@
-# P00 handoff
-Status: NOT_STARTED. No implementation or export exists yet.
-
-Base SHA: record at mission entry.
-Delivered SHA: report externally after actual commit.
-Changed files / migrations / exact dependencies: not applicable yet.
-Tests: NOT_RUN.
-Missing prerequisites: inspect Arena capabilities; no live Shopify/AI key needed for P00.
-Next action: P00-T01.
-Before delivery, include actual reproducible commands, unresolved tasks, proof paths and export checksum if applicable. Do not start P01 automatically.
+# Handoff
+IN_PROGRESS. Source b0943dd8cd87626cc7c8ac20979eedc830a3d5e9. Read checkpoints and git diff. Root workspace only; lockfile includes turbo and TypeScript, no applications. Next: verify application dependencies and peer constraints, implement contracts, API, worker, web and isolated Docker; execute G01-G16. Free OpenRouter subagents are not available in listed collaboration models. Do not use old implementation, push or start P01.

@@ -1,5 +1,4 @@
-# P00 progress
-
-2026-11-25 — documentation bootstrap. No implementation, install, build, Docker run or smoke test yet.
-
-Next exact action: inspect actual checkout (pwd, git status --short, git rev-parse HEAD), read AGENTS/PRD/roadmap/status and all P00 files, capture source SHA and capabilities in MISSION, then start T01. Append dated task checkpoints with files changed, result, blockers and next action.
+# Progress
+2026-11-26: Clean worktree created from source SHA. Prior branches preserved. No verified free OpenRouter routes are available through the provided collaboration tools; no paid subagents used. Disk C: about 2.56 GB free. Next: query npm metadata and check Docker daemon and capacity before implementing workspace.
+2026-11-26 T02 partial: Docker daemon and Compose reachable elevated; official npm registry returned turbo 2.11.13 and TypeScript 5.9.3. Root workspace configuration created; no app packages or lockfile yet. Bulk npm metadata requests stalled and were interrupted; no complete dependency selection. Next: generate lockfile for root and verify peers, then implement applications and required gates.
+2026-11-26 T02 partial: root-only lockfile generated using pnpm --lockfile-only; application dependencies and full peer checks remain. Next: verify compatible stable NestJS/Fastify, React/Next and supporting dependencies, add application manifests and real code; run all gates. The user-required independent free-route review remains unavailable. No certification.

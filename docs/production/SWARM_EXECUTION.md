@@ -1,0 +1,2 @@
+# Swarm execution
+User requires exclusively verified free OpenRouter routes and no recursive delegation. Available collaboration models are not identified as such; independent implementation and independent swarm review remain limited until a verified eligible route is available. Lead owns architecture, configuration, contracts, integration and checkpoints. Preserve task ownership and record all evidence.
