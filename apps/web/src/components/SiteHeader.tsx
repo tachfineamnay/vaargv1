@@ -1,22 +1,5 @@
-import Link from 'next/link';
-import type { ReactElement } from 'react';
-import { NAVIGATION, SITE_CONFIG } from '../lib/site';
-
-export function SiteHeader(): ReactElement {
-  return (
-    <header className="site-header" data-testid="site-header">
-      <Link href="/" className="brand" aria-label={`${SITE_CONFIG.name} home`}>
-        {SITE_CONFIG.name}
-      </Link>
-      <nav aria-label="Primary" className="site-nav">
-        <ul>
-          {NAVIGATION.map((item) => (
-            <li key={item.href}>
-              <Link href={item.href}>{item.label}</Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-    </header>
-  );
-}
+/**
+ * FL01 compatibility alias: the header component is now `StorefrontHeader`
+ * (FL04). Existing imports and tests keep working through this re-export.
+ */
+export { StorefrontHeader as SiteHeader } from './StorefrontHeader';

@@ -35,7 +35,7 @@ export async function fetchCatalog(host: string, kind: 'products' | 'collections
   return catalogResponseSchema.parse(await response.json());
 }
 
-function resolveApiBase(): string {
+export function resolveApiBase(): string {
   const base = process.env.API_BASE_URL ?? (process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:4111');
   if (!base) throw new Error('API_BASE_URL is required');
   return base.replace(/\/+$/, '');

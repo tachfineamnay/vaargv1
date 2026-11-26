@@ -3,6 +3,7 @@ import {
   APP_ENV_SCHEMA,
   AppError,
   catalogQuerySchema,
+  catalogV1ProductsQuerySchema,
   createJsonLogger,
   echoRequestSchema,
   LIVENESS_SCHEMA_NAME,
@@ -177,5 +178,37 @@ describe('shared contracts — application payloads', () => {
 
   it('exposes the liveness contract name', () => {
     expect(LIVENESS_SCHEMA_NAME).toBe('liveness');
+  });
+});
+
+describe('shared contracts — v1 products query', () => {
+  it('splits the wire-format attribute string on the first colon', () => {
+    const parsed = catalogV1ProductsQuerySchema.parse({ attribute: 'Size:M' });
+    expect(parsed.attribute).toEqual({ name: 'Size', value: 'M' });
+    const multi = catalogV1ProductsQuerySchema.parse({ attribute: 'Note:50%:x' });
+    expect(multi.attribute).toEqual({ name: 'Note', value: '50%:x' });
+  });
+
+  it('rejects attribute strings without a usable name or value', () => {
+    expect(catalogV1ProductsQuerySchema.safeParse({ attribute: 'nocolon' }).success).toBe(false);
+    expect(catalogV1ProductsQuerySchema.safeParse({ attribute: ':value' }).success).toBe(false);
+    expect(catalogV1ProductsQuerySchema.safeParse({ attribute: 'Name:' }).success).toBe(false);
+    expect(catalogV1ProductsQuerySchema.safeParse({ attribute: '' }).success).toBe(false);
+  });
+
+  it('accepts internal object filters and absent attributes', () => {
+    expect(catalogV1ProductsQuerySchema.parse({ attribute: { name: 'Size', value: 'M' } }).attribute).toEqual({
+      name: 'Size',
+      value: 'M',
+    });
+    expect(catalogV1ProductsQuerySchema.parse({}).attribute).toBeUndefined();
+  });
+
+  it('applies v1 list defaults and strict rejection', () => {
+    const parsed = catalogV1ProductsQuerySchema.parse({});
+    expect(parsed.limit).toBe(24);
+    expect(parsed.sort).toBe('title-asc');
+    expect(catalogV1ProductsQuerySchema.safeParse({ sort: 'price_desc' }).success).toBe(false);
+    expect(catalogV1ProductsQuerySchema.safeParse({ limit: 51 }).success).toBe(false);
   });
 });

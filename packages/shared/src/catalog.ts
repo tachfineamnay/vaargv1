@@ -96,7 +96,16 @@ export const catalogV1ProductsQuerySchema = z.strictObject({
   currency: z.string().regex(/^[A-Z]{3}$/).optional(),
   priceMin: httpDecimal.optional(),
   priceMax: httpDecimal.optional(),
-  attribute: attributeFilterSchema.optional(),
+  // FL04: HTTP callers send `attribute=Size:M`; split on the first colon into
+  // `{name, value}`. Values without a colon (or with an empty name/value) fall
+  // through to the object schema and fail validation with400. Objects produced
+  // internally (unit callers) pass through unchanged.
+  attribute: z.preprocess((raw) => {
+    if (typeof raw !== 'string') return raw;
+    const index = raw.indexOf(':');
+    if (index <= 0) return raw;
+    return { name: raw.slice(0, index), value: raw.slice(index + 1) };
+  }, attributeFilterSchema.optional()),
 });
 export type CatalogV1ProductsQuery = z.input<typeof catalogV1ProductsQuerySchema>;
 
@@ -191,6 +200,23 @@ export const catalogV1CollectionSchema = z.strictObject({
   provenance: provenanceSchema,
 });
 export type CatalogV1Collection = z.infer<typeof catalogV1CollectionSchema>;
+
+/**
+ * FL04: detail endpoints return the curated DTO spread with market freshness
+ * (`{...dto, status, completedAt, generation}`) — these response schemas give
+ * typed, strict validation of that exact wire shape for API clients.
+ */
+const detailFreshnessShape = {
+  status: freshnessSchema,
+  completedAt: z.iso.datetime().nullable(),
+  generation: z.uuid().nullable(),
+};
+export const catalogV1ProductDetailResponseSchema = catalogV1ProductDetailSchema.extend(detailFreshnessShape);
+export type CatalogV1ProductDetailResponse = z.infer<typeof catalogV1ProductDetailResponseSchema>;
+export const catalogV1VariantDetailResponseSchema = catalogV1VariantDetailSchema.extend(detailFreshnessShape);
+export type CatalogV1VariantDetailResponse = z.infer<typeof catalogV1VariantDetailResponseSchema>;
+export const catalogV1CollectionResponseSchema = catalogV1CollectionSchema.extend(detailFreshnessShape);
+export type CatalogV1CollectionResponse = z.infer<typeof catalogV1CollectionResponseSchema>;
 
 /** Deterministic comparison: rows are the union of compared attribute names. */
 export const catalogV1ComparisonSchema = z.strictObject({

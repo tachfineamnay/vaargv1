@@ -8,6 +8,7 @@ const auth = vi.hoisted(() => vi.fn());
 const execute = vi.hoisted(() => vi.fn());
 const readV1List = vi.hoisted(() => vi.fn());
 const readV1Detail = vi.hoisted(() => vi.fn());
+const readV1Filters = vi.hoisted(() => vi.fn());
 vi.mock('@vaarg/persistence', async (original) => ({
   ...await original<typeof import('@vaarg/persistence')>(),
   readCatalogProjection: read,
@@ -17,6 +18,7 @@ vi.mock('@vaarg/persistence', async (original) => ({
   executeCatalogStep: execute,
   listCatalogProductsV1: readV1List,
   getCatalogProductV1: readV1Detail,
+  listCatalogFiltersV1: readV1Filters,
 }));
 const binding: StorefrontBinding = { host:'synthetic.example', storeId:'00000000-0000-4000-8000-000000000001', country:'FR', language:'FR', currency:'EUR', shopifyDomain:'synthetic.myshopify.com', tokenEnv:'SHOPIFY_SYNTHETIC' };
 const database = { getPool: () => ({}) } as unknown as DatabaseClient;
@@ -111,6 +113,35 @@ describe('v1 catalog application API', () => {
       readV1Detail.mockClear();
       await expect(service.getProductV1('synthetic.example', 'req-fl03-test', '123')).rejects.toThrow();
       expect(readV1Detail).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'gid://shopify/Product/123', expect.any(Number));
+    } finally { delete process.env.SHOPIFY_SYNTHETIC; }
+  });
+  it('accepts wire-format attribute filters and rejects malformed ones', async () => {
+    process.env.SHOPIFY_SYNTHETIC = 'synthetic-only';
+    try {
+      readV1List.mockResolvedValue({ status: 'FRESH', completedAt: '2026-01-01T00:00:00.000Z', sort: 'title-asc', currency: 'EUR', items: [], nextCursor: null });
+      const service = serviceOf([binding]);
+      await service.listProductsV1('synthetic.example', 'req-fl03-test', { attribute: 'Size:M' });
+      expect(readV1List).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ attribute: { name: 'Size', value: 'M' } }), expect.any(Number));
+      await service.listProductsV1('synthetic.example', 'req-fl03-test', { attribute: { name: 'Size', value: 'L' } });
+      expect(readV1List).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ attribute: { name: 'Size', value: 'L' } }), expect.any(Number));
+      await expect(service.listProductsV1('synthetic.example', 'req-fl03-test', { attribute: 'nocolon' })).rejects.toThrow('Invalid catalog query');
+      await expect(service.listProductsV1('synthetic.example', 'req-fl03-test', { attribute: 'Size:' })).rejects.toThrow('Invalid catalog query');
+    } finally { delete process.env.SHOPIFY_SYNTHETIC; }
+  });
+  it('lists filters with the collection extracted from the query', async () => {
+    process.env.SHOPIFY_SYNTHETIC = 'synthetic-only';
+    try {
+      readV1Filters.mockResolvedValue({ options: [], productTypes: [], vendors: [], priceRange: null, currency: 'EUR' });
+      const service = serviceOf([binding]);
+      // FL04 regression: `?collection=gifts` used to 400 (strict pick saw the key).
+      const result = await service.listFiltersV1('synthetic.example', 'req-fl03-test', { collection: 'gifts' });
+      expect(result.currency).toBe('EUR');
+      expect(readV1Filters).toHaveBeenLastCalledWith(expect.anything(), { storeId: binding.storeId, country: 'FR', language: 'FR' }, { collection: 'gifts' }, expect.any(Number));
+      await service.listFiltersV1('synthetic.example', 'req-fl03-test', { q: 'ring', collection: 'gifts' });
+      expect(readV1Filters).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), { collection: 'gifts' }, expect.any(Number));
+      await expect(service.listFiltersV1('synthetic.example', 'req-fl03-test', { collection: '../evil' })).rejects.toThrow('Invalid collection filter');
+      await expect(service.listFiltersV1('synthetic.example', 'req-fl03-test', { limit: '5' })).rejects.toThrow('Invalid catalog query');
+      await expect(service.listFiltersV1('synthetic.example', 'req-fl03-test', { q: 5 })).rejects.toThrow('Invalid catalog query');
     } finally { delete process.env.SHOPIFY_SYNTHETIC; }
   });
 });

@@ -1,0 +1,55 @@
+PASS GET / → 200
+PASS GET /products → 200
+PASS GET /products/linen-shirt → 200
+PASS GET /collections → 200
+PASS GET /collections/summer → 200
+PASS GET /search?q=linen → 200
+PASS GET /search → 200
+PASS GET /compare?ids=gid://shopify/Product/123,gid://shopify/Product/456 → 200
+PASS GET /compare → 200
+PASS GET /preferences → 200
+PASS GET /health → 200
+PASS health API panel readiness (data-state=connected, Readiness:)
+PASS GET /sitemap.xml → 200
+PASS GET /robots.txt → 200
+PASS GET /nonexistent-page → 404
+PASS home hero section
+PASS home category tiles
+PASS home product cards
+PASS home adaptive boundary
+PASS header primary nav (layout)
+PASS products filter panel
+PASS products catalog status
+PASS products sort control
+PASS detail variant selector
+PASS detail gallery
+PASS detail JSON-LD
+PASS detail related section
+PASS search results grid
+PASS search empty prompt
+PASS compare table
+PASS compare under-specified prompt
+PASS preferences SSR loading view
+PASS preferences consent rows
+PASS health page
+PASS sitemap includes products
+PASS sitemap includes collections
+PASS robots disallows /api/
+PASS Host: store-two.test → 200 (tenant authority forwarded)
+PASS POST /api/session → 200 envelope
+PASS session Set-Cookie relayed
+PASS cross-origin POST /api/session → 403
+PASS GET /api/session with cookie → 200
+PASS GET /api/session without cookie → 401
+PASS POST /api/session/rotate → 200
+PASS DELETE /api/session → 200
+PASS GET /api/consent → 200
+PASS POST /api/consent valid → 200
+PASS POST /api/consent customerId smuggle → 400
+PASS POST /api/consent without Origin → 403
+INFO Host: unknown.example → 200 (page renders an honest storefront error surface; API binding rejection verified in unit tests)
+0 markers)
+---
+SUMMARY: 49 passed, 0 failed
+Run: 2026-11-26 · next start (production build) + node test/support/smoke-stub.mjs on :4112
+Docker / real-Postgres / Valkey / live Shopify gates: NOT_RUN (no Docker in sandbox) — see VALIDATION.md
