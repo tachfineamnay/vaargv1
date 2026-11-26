@@ -29,11 +29,11 @@ async function probe(
   try {
     await run();
     sink.push({ name, status: 'ready', latencyMs: Date.now() - start, required: true });
-  } catch (error) {
+  } catch {
     sink.push({
       name,
       status: 'not_ready',
-      detail: error instanceof Error ? error.message : 'Probe failed',
+      detail: 'Dependency probe failed',
       latencyMs: Date.now() - start,
       required: true,
     });

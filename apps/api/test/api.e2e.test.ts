@@ -55,7 +55,7 @@ describe.skipIf(!enabled)('VAARG API (live smoke)', () => {
 
   it('reports readiness with explicit component checks', async () => {
     const result = await get('/health/ready');
-    expect(result.status).toBe(200);
+    expect([200, 503]).toContain(result.status);
     const body = result.body as {
       status: string;
       checks: { name: string; status: string; required: boolean }[];

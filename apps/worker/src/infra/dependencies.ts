@@ -45,9 +45,8 @@ export class WorkerDependencies {
       await run();
       this.logger.info({ dependency: name }, 'Dependency ready');
       return 'ready';
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Probe failed';
-      this.logger.warn({ dependency: name, error: message }, 'Dependency not ready');
+    } catch {
+      this.logger.warn({ dependency: name }, 'Dependency not ready');
       return 'not_ready';
     }
   }

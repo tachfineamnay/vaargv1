@@ -21,8 +21,9 @@
     "certify": "bash scripts/certification/certify.sh",
     "db:up": "docker compose -f docker-compose.dev.yml up -d",
     "db:up:prod": "docker compose -f docker-compose.prod.yml up -d",
-    "db:down": "docker compose -f docker-compose.dev.yml down -v",
-    "db:down:prod": "docker compose -f docker-compose.prod.yml down -v"
+    "db:down": "docker compose -f docker-compose.dev.yml down",
+    "db:down:prod": "docker compose -f docker-compose.prod.yml down",
+    "db:reset:dev": "docker compose -f docker-compose.dev.yml down -v"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

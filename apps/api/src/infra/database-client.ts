@@ -41,6 +41,10 @@ export class DatabaseClient {
     }
   }
 
+  async onApplicationShutdown(): Promise<void> {
+    await this.close();
+  }
+
   async close(): Promise<void> {
     await this.pool?.end();
     this.pool = undefined;

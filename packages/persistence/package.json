@@ -14,7 +14,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -22,7 +23,7 @@
     "lint": "eslint src test",
     "test": "vitest run",
     "test:watch": "vitest",
-    "migrate": "node dist/migrate.js",
+    "migrate": "node dist/db/migrate.js",
     "migrate:generate": "drizzle-kit generate",
     "clean": "rm -rf dist .turbo *.tsbuildinfo",
     "catalog:step": "node dist/commerce/cli.js"

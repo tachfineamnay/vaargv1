@@ -35,18 +35,18 @@ export async function fetchCatalog(host: string, kind: 'products' | 'collections
   return catalogResponseSchema.parse(await response.json());
 }
 
-const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:4111';
-
 function resolveApiBase(): string {
-  return API_BASE_URL.replace(/\/+$/, '');
+  const base = process.env.API_BASE_URL ?? (process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:4111');
+  if (!base) throw new Error('API_BASE_URL is required');
+  return base.replace(/\/+$/, '');
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
+async function fetchJson<T>(path: string, allowUnready = false): Promise<T> {
   const response = await fetch(`${resolveApiBase()}${path}`, {
     signal: AbortSignal.timeout(4000),
     headers: { accept: 'application/json' },
   });
-  if (!response.ok) {
+  if (!response.ok && !(allowUnready && response.status === 503)) {
     throw new Error(`API ${path} responded with HTTP ${response.status}`);
   }
   return (await response.json()) as T;
@@ -60,7 +60,7 @@ export async function probeApiStatus(): Promise<ApiStatus> {
   try {
     const [healthRaw, readinessRaw, versionRaw] = await Promise.all([
       fetchJson<unknown>('/health/live'),
-      fetchJson<unknown>('/health/ready'),
+      fetchJson<unknown>('/health/ready', true),
       fetchJson<unknown>('/version'),
     ]);
 
