@@ -1,9 +1,7 @@
-import { Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { withTimeout } from './database-client.js';
+import { withTimeout } from './timeout.js';
 
 export class ValkeyClient {
-  private readonly logger = new Logger(ValkeyClient.name);
   private client: Redis | undefined;
 
   constructor(
@@ -15,12 +13,11 @@ export class ValkeyClient {
     if (!this.client) {
       this.client = new Redis(this.connectionUrl, {
         keyPrefix: this.keyPrefix,
-        enableAutoPipelining: true,
         maxRetriesPerRequest: 2,
         connectTimeout: 5000,
       });
-      this.client.on('error', (error) => {
-        this.logger.error(`Valkey client error: ${error.message}`);
+      this.client.on('error', () => {
+        // Client errors are surfaced through readiness probes.
       });
     }
     return this.client;
@@ -39,7 +36,11 @@ export class ValkeyClient {
 
   async close(): Promise<void> {
     if (this.client) {
-      await this.client.quit();
+      try {
+        await this.client.quit();
+      } catch {
+        this.client.disconnect();
+      }
       this.client = undefined;
     }
   }

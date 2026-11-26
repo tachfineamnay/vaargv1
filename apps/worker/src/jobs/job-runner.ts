@@ -1,4 +1,4 @@
-import type { Logger } from '@vaarg/shared';
+import type { Logger } from 'pino';
 
 export interface JobContext {
   jobId: string;
@@ -12,6 +12,10 @@ export interface JobDefinition {
   handler: JobHandler;
 }
 
+/**
+ * Real job registry. No placeholder or fake-success jobs are registered in
+ * P00; full durable workflow integration belongs to later missions.
+ */
 export class JobRunner {
   constructor(
     private readonly jobs: JobDefinition[],
@@ -27,16 +31,19 @@ export class JobRunner {
     if (!job) {
       throw new Error(`Unknown job: ${name}`);
     }
-    this.logger.info(`Job started`, { job: name, jobId: context.jobId, attempt: context.attempt });
+    this.logger.info({ job: name, jobId: context.jobId, attempt: context.attempt }, 'Job started');
     try {
       await job.handler(context);
-      this.logger.info(`Job completed`, { job: name, jobId: context.jobId });
+      this.logger.info({ job: name, jobId: context.jobId }, 'Job completed');
     } catch (error) {
-      this.logger.error(`Job failed`, {
-        job: name,
-        jobId: context.jobId,
-        error: error instanceof Error ? error.message : 'Unknown failure',
-      });
+      this.logger.error(
+        {
+          job: name,
+          jobId: context.jobId,
+          error: error instanceof Error ? error.message : 'Unknown failure',
+        },
+        'Job failed',
+      );
       throw error;
     }
   }

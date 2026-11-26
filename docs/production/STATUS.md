@@ -1,10 +1,10 @@
 # Production status — VAARG̈ V1
 
-As of 2026-11-26: P00 industrial bootstrap IMPLEMENTED and locally certified (frozen install, lint, typecheck, tests, build, live smoke all PASS_REAL). Docker/live-provider gates remain NOT_RUN and are executed by the external Codex harness.
+As of 2026-11-26: P00 clean industrial bootstrap IMPLEMENTED (clean-room rebuild, no reuse of previous P00 code) and locally certified. Frozen install, lint, typecheck, tests, build and live smoke all PASS_REAL. Docker and live-provider gates remain NOT_RUN and are executed by Codex.
 
 | Mission | Implementation | Verification |
 |---|---|---|
-| P00 Bootstrap | DONE | PASS_LOCAL_SOURCE (Docker/live NOT_RUN) |
+| P00 Bootstrap | DONE (clean-room) | PASS_LOCAL_SOURCE (Docker/live NOT_RUN) |
 | P01 Core data / identity / isolation | TODO | NOT_RUN |
 | P02 Shopify / catalogue | TODO | NOT_RUN |
 | P03 Storefront / design | TODO | NOT_RUN |
@@ -18,12 +18,13 @@ As of 2026-11-26: P00 industrial bootstrap IMPLEMENTED and locally certified (fr
 | P11 Deployment | TODO | NOT_RUN |
 
 ## P00 delivered
-- pnpm/Turbo monorepo, strict TS 5.9.3, frozen lockfile.
-- @vaarg/shared Zod 4.6.7 contracts (9 tests).
-- @vaarg/api NestJS 12/Fastify 5: /health, /health/ready, /version, /catalog (live HTTP 200).
-- @vaarg/web Next.js 16/React 19 SSR (4 tests, standalone HTTP 200).
-- @vaarg/worker real entrypoint with explicit dependency readiness (6 tests).
-- docker-compose (PostgreSQL 18 + Valkey 8), 3 Dockerfiles, .env.example, certify.sh + smoke.mjs.
+- pnpm/Turbo monorepo, strict TS 5.9.3, frozen lockfile, shared ESLint.
+- @vaarg/shared Zod 4 contracts with contradictory-readiness rejection (14 tests).
+- @vaarg/api NestJS/Fastify: Pino logging, request IDs, structured errors, graceful shutdown, distinct liveness/readiness, real PG+Valkey checks (4 live e2e).
+- @vaarg/web Next.js 16/React 19: SSR landing, typed API connectivity + failure states, accessible layout, standalone Docker (5 tests).
+- @vaarg/worker: validated config, required dependency checks, startup failure + graceful shutdown (6 tests).
+- Infra: PG18+pgvector + Valkey, dev/prod Compose, private networks, 3 Dockerfiles, safe .env.example.
+- certify.sh + smoke.mjs; integration risk review (Hermes/Hatchet/A2UI/AG-UI/Hydrogen).
 
 ## Next exact action
-Codex: real Docker certification (compose up, build images, confirm /health/ready ready against live DB+Valkey). No P01 without instruction.
+Codex: real Docker certification (compose up, build images, confirm /health/ready ready against live PG+Valkey). No P01 without instruction.

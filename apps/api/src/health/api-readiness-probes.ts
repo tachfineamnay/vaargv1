@@ -1,26 +1,21 @@
 import { Injectable } from '@nestjs/common';
+import type { ReadinessCheck } from '@vaarg/shared';
 import { DatabaseClient } from '../infra/database-client.js';
 import { ValkeyClient } from '../infra/valkey-client.js';
-import {
-  ReadinessProbeResult,
-  ReadinessProbes,
-} from './readiness-probes.js';
+import type { ReadinessProbes } from './readiness-probes.js';
 
 @Injectable()
 export class ApiReadinessProbes implements ReadinessProbes {
   constructor(
     private readonly database: DatabaseClient,
     private readonly valkey: ValkeyClient,
-    private readonly databaseTimeoutMs: number,
     private readonly valkeyTimeoutMs: number,
   ) {}
 
-  async check(): Promise<ReadinessProbeResult[]> {
-    const results: ReadinessProbeResult[] = [];
-
-    await probe('database', () => this.database.ping(this.databaseTimeoutMs), results);
+  async check(): Promise<ReadinessCheck[]> {
+    const results: ReadinessCheck[] = [];
+    await probe('database', () => this.database.ping(), results);
     await probe('valkey', () => this.valkey.ping(this.valkeyTimeoutMs), results);
-
     return results;
   }
 }
@@ -28,18 +23,19 @@ export class ApiReadinessProbes implements ReadinessProbes {
 async function probe(
   name: string,
   run: () => Promise<void>,
-  sink: ReadinessProbeResult[],
+  sink: ReadinessCheck[],
 ): Promise<void> {
   const start = Date.now();
   try {
     await run();
-    sink.push({ name, status: 'ready', latencyMs: Date.now() - start });
+    sink.push({ name, status: 'ready', latencyMs: Date.now() - start, required: true });
   } catch (error) {
     sink.push({
       name,
       status: 'not_ready',
       detail: error instanceof Error ? error.message : 'Probe failed',
       latencyMs: Date.now() - start,
+      required: true,
     });
   }
 }

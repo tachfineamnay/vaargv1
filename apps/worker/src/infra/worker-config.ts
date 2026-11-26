@@ -1,7 +1,7 @@
-import { parseAppEnv } from '@vaarg/shared';
+import { parseAppEnv, type AppEnv } from '@vaarg/shared';
 
 export interface WorkerConfiguration {
-  app: ReturnType<typeof parseAppEnv>;
+  app: AppEnv;
   database: {
     url: string;
     readinessTimeoutMs: number;

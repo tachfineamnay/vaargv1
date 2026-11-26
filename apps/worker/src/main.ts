@@ -1,13 +1,11 @@
-import {
-  createJsonLogger,
-  type Logger,
-} from '@vaarg/shared';
+import pino from 'pino';
+import type { DependencyStatus } from '@vaarg/shared';
 import { WorkerDependencies, type DependencyReport } from './infra/dependencies.js';
 import { loadWorkerConfiguration } from './infra/worker-config.js';
 import { JobRunner } from './jobs/job-runner.js';
 
 export interface WorkerRuntime {
-  logger: Logger;
+  logger: pino.Logger;
   dependencies: WorkerDependencies;
   runner: JobRunner;
   report(): Promise<DependencyReport>;
@@ -18,12 +16,18 @@ export async function createWorkerRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<WorkerRuntime> {
   const configuration = loadWorkerConfiguration(env);
-  const logger = createJsonLogger({ level: configuration.app.logLevel });
+  const logger = pino({
+    level: configuration.app.logLevel,
+    formatters: { level: (label) => ({ level: label }) },
+    redact: {
+      paths: ['*.apiKey', '*.api_key', '*.token', '*.password'],
+      censor: '[redacted]',
+    },
+  });
 
   const dependencies = new WorkerDependencies(configuration, logger);
   const report = await dependencies.check();
-
-  logger.info('Worker dependency readiness', { ...report });
+  logger.info(report, 'Worker dependency readiness');
 
   const runner = new JobRunner([], logger);
 
@@ -40,29 +44,43 @@ export async function createWorkerRuntime(
 }
 
 async function bootstrap(): Promise<void> {
+  const configuration = loadWorkerConfiguration();
   const runtime = await createWorkerRuntime();
 
-  const shutdown = (): void => {
-    runtime.logger.info('Shutting down worker');
+  const shutdown = (signal: string): void => {
+    runtime.logger.info({ signal }, 'Shutting down worker');
     void runtime.shutdown().then(() => process.exit(0));
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  runtime.logger.info('VAARG worker started', {
-    jobs: runtime.runner.registeredJobs,
-    hatchet: runtime.report().then((report) => report.hatchet),
-  });
+  const initial = await runtime.report();
+  runtime.logger.info({ jobs: runtime.runner.registeredJobs, ...initial }, 'VAARG worker started');
 
-  // Keep the worker alive; dependency health is re-probed periodically.
+  // Startup failure: exit non-zero when required dependencies are unreachable
+  // and the operator has not opted into running degraded.
+  const requireReady = (process.env.WORKER_REQUIRE_READY ?? 'true') !== 'false';
+  if (requireReady && !initial.allReady) {
+    const failed: DependencyStatus[] = [initial.database, initial.valkey].filter(
+      (status) => status !== 'ready',
+    );
+    runtime.logger.error(
+      { failedDependencies: failed },
+      'Worker startup aborted: required dependencies are not ready',
+    );
+    await runtime.shutdown();
+    process.exit(1);
+  }
+
+  // Keep the worker alive; re-probe dependencies on the configured interval.
   await new Promise<void>((resolve) => {
     const interval = setInterval(() => {
       void runtime.report().then((report) => {
         if (!report.allReady) {
-          runtime.logger.warn('Worker running with unready dependencies');
+          runtime.logger.warn({ report }, 'Worker running with unready dependencies');
         }
       });
-    }, 30_000);
+    }, configuration.valkey.pollIntervalMs);
     const stop = (): void => {
       clearInterval(interval);
       resolve();

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VAARG V1 P00 local certification runner.
+# VAARG V1 P00 — local certification runner.
 # Runs the reproducible local gates that do not require external providers.
 set -euo pipefail
 

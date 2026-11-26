@@ -2,7 +2,7 @@
   "name": "@vaarg/worker",
   "version": "1.0.0",
   "private": true,
-  "description": "VAARG V1 durable worker entrypoint (Hermes/Hatchet-ready)",
+  "description": "VAARG V1 durable worker entrypoint (Hatchet-ready)",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
@@ -19,7 +19,8 @@
   "dependencies": {
     "@vaarg/shared": "workspace:*",
     "ioredis": "6.1.0",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "pino": "10.4.0"
   },
   "devDependencies": {
     "@types/node": "24.19.4",

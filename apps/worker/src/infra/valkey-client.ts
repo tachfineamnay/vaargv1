@@ -1,8 +1,7 @@
-import { createJsonLogger } from '@vaarg/shared';
 import { Redis } from 'ioredis';
+import { withTimeout } from './timeout.js';
 
 export class ValkeyClient {
-  private readonly logger = createJsonLogger({ level: 'info' });
   private client: Redis | undefined;
 
   constructor(
@@ -17,15 +16,15 @@ export class ValkeyClient {
         maxRetriesPerRequest: 2,
         connectTimeout: 5000,
       });
-      this.client.on('error', (error) => {
-        this.logger.error(`Valkey client error: ${error.message}`);
+      this.client.on('error', () => {
+        // Client errors are surfaced through the dependency readiness check.
       });
     }
     return this.client;
   }
 
   async ping(timeoutMs: number): Promise<void> {
-    const response = await withTimeoutSafe(
+    const response = await withTimeout(
       this.getClient().ping(),
       timeoutMs,
       'Valkey readiness probe timed out',
@@ -37,28 +36,13 @@ export class ValkeyClient {
 
   async close(): Promise<void> {
     if (this.client) {
-      await this.client.quit();
+      try {
+        await this.client.quit();
+      } catch {
+        // Connection may already be broken; discard the client regardless.
+        this.client.disconnect();
+      }
       this.client = undefined;
-    }
-  }
-}
-
-async function withTimeoutSafe<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
     }
   }
 }

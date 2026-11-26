@@ -1,8 +1,7 @@
-import { createJsonLogger } from '@vaarg/shared';
 import { Pool, type PoolClient } from 'pg';
+import { withTimeout } from './timeout.js';
 
 export class DatabaseClient {
-  private readonly logger = createJsonLogger({ level: 'info' });
   private pool: Pool | undefined;
 
   constructor(
@@ -18,15 +17,11 @@ export class DatabaseClient {
         connectionTimeoutMillis: 5000,
         idleTimeoutMillis: 30000,
       });
-      this.pool.on('error', (error) => {
-        this.logger.error(`PostgreSQL pool error: ${error.message}`);
+      this.pool.on('error', () => {
+        // Pool errors are surfaced through the dependency readiness check.
       });
     }
     return this.pool;
-  }
-
-  async acquire(): Promise<PoolClient> {
-    return this.getPool().connect();
   }
 
   async ping(): Promise<void> {
@@ -42,28 +37,12 @@ export class DatabaseClient {
     }
   }
 
+  private async acquire(): Promise<PoolClient> {
+    return this.getPool().connect();
+  }
+
   async close(): Promise<void> {
     await this.pool?.end();
     this.pool = undefined;
-  }
-}
-
-export async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
   }
 }

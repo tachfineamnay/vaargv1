@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Local smoke runner for VAARG V1 P00.
- * Probes the executable web/API/worker boundaries that are actually running.
+ * VAARG V1 P00 — local runtime smoke runner.
+ * Probes the executable web/API boundaries that are actually running.
  * Usage: node scripts/certification/smoke.mjs
  * Exit 0 when every reachable boundary reports healthy; exit 1 otherwise.
  */
@@ -50,65 +50,44 @@ function probe(target, path, validator) {
         detail: `connection failed: ${error.message}`,
       });
     });
-    req.on('timeout', () => {
-      req.destroy(new Error('timeout'));
-    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
     req.end();
   });
 }
 
-const apiValidator = (result, body) => {
-  if (result.status !== 200) {
-    return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
-  }
+const apiLiveness = (result, body) => {
+  if (result.status !== 200) return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
   const parsed = JSON.parse(body);
-  if (parsed.status !== 'ok' || parsed.service !== 'api') {
-    return { ok: false, detail: 'unexpected health payload' };
-  }
+  if (parsed.status !== 'ok' || parsed.service !== 'api') return { ok: false, detail: 'unexpected liveness payload' };
   return { ok: true, detail: 'liveness ok' };
-};
-
-const webValidator = (result) => {
-  if (result.status !== 200) {
-    return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
-  }
-  return { ok: true, detail: 'SSR page served' };
 };
 
 for (const target of TARGETS) {
   if (target.name === 'api') {
-    checks.push(await probe(target, '/health', apiValidator));
+    checks.push(await probe(target, '/health/live', apiLiveness));
     checks.push(await probe(target, '/health/ready', (result, body) => {
-      if (result.status !== 200) {
-        return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
-      }
+      if (result.status !== 200) return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
       const parsed = JSON.parse(body);
-      if (!Array.isArray(parsed.checks)) {
-        return { ok: false, detail: 'missing readiness checks' };
-      }
-      return {
-        ok: true,
-        detail: `readiness ${parsed.status} (${parsed.checks.map((c) => `${c.name}=${c.status}`).join(', ')})`,
-      };
+      if (!Array.isArray(parsed.checks)) return { ok: false, detail: 'missing readiness checks' };
+      return { ok: true, detail: `readiness ${parsed.status} (${parsed.checks.map((c) => `${c.name}=${c.status}`).join(', ')})` };
     }));
     checks.push(await probe(target, '/version', (result) => {
-      if (result.status !== 200) {
-        return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
-      }
+      if (result.status !== 200) return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
       return { ok: true, detail: 'version metadata served' };
     }));
   } else {
-    checks.push(await probe(target, '/', webValidator));
+    checks.push(await probe(target, '/', (result) => {
+      if (result.status !== 200) return { ok: false, detail: `expected HTTP 200, got ${result.status}` };
+      return { ok: true, detail: 'SSR page served' };
+    }));
   }
 }
 
 let failures = 0;
 for (const check of checks) {
-  const marker = check.ok ? 'PASS' : 'FAIL';
   if (!check.ok) failures += 1;
-  console.log(
-    `[${marker}] ${check.target} ${check.path} (${check.status}, ${check.latencyMs}ms) ${check.detail}`,
-  );
+  const marker = check.ok ? 'PASS' : 'FAIL';
+  console.log(`[${marker}] ${check.target} ${check.path} (${check.status}, ${check.latencyMs}ms) ${check.detail}`);
 }
 
 if (failures > 0) {

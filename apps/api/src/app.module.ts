@@ -18,7 +18,7 @@ import { loadApiConfiguration, type ApiConfiguration } from './infra/config.js';
     {
       provide: DatabaseClient,
       useFactory: (configuration: ApiConfiguration) =>
-        new DatabaseClient(configuration.database.url),
+        new DatabaseClient(configuration.database.url, configuration.database.readinessTimeoutMs),
       inject: ['API_CONFIGURATION'],
     },
     {
@@ -37,7 +37,6 @@ import { loadApiConfiguration, type ApiConfiguration } from './infra/config.js';
         new ApiReadinessProbes(
           database,
           valkey,
-          configuration.database.readinessTimeoutMs,
           configuration.valkey.readinessTimeoutMs,
         ),
       inject: [DatabaseClient, ValkeyClient, 'API_CONFIGURATION'],

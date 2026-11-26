@@ -1,4 +1,4 @@
-import type { AppEnv } from '@vaarg/shared';
+import type { AppEnv, LogLevel } from '@vaarg/shared';
 import { parseAppEnv } from '@vaarg/shared';
 
 export interface ApiConfiguration {
@@ -12,12 +12,14 @@ export interface ApiConfiguration {
     readinessTimeoutMs: number;
     keyPrefix: string;
   };
+  hatchet: {
+    url: string | undefined;
+    token: string | undefined;
+    enabled: boolean;
+  };
 }
 
 export function loadApiConfiguration(env: NodeJS.ProcessEnv = process.env): ApiConfiguration {
-  const databaseUrl = env.DATABASE_URL;
-  const valkeyUrl = env.VALKEY_URL;
-
   return {
     app: parseAppEnv({
       NODE_ENV: env.NODE_ENV,
@@ -26,13 +28,18 @@ export function loadApiConfiguration(env: NodeJS.ProcessEnv = process.env): ApiC
       LOG_LEVEL: env.LOG_LEVEL,
     }),
     database: {
-      url: requireEnv(databaseUrl, 'DATABASE_URL'),
-      readinessTimeoutMs: readTimeout(env.DATABASE_READINESS_TIMEOUT_MS, 1500),
+      url: requireEnv(env.DATABASE_URL, 'DATABASE_URL'),
+      readinessTimeoutMs: readPositiveInt(env.DATABASE_READINESS_TIMEOUT_MS, 1500),
     },
     valkey: {
-      url: requireEnv(valkeyUrl, 'VALKEY_URL'),
-      readinessTimeoutMs: readTimeout(env.VALKEY_READINESS_TIMEOUT_MS, 1000),
+      url: requireEnv(env.VALKEY_URL, 'VALKEY_URL'),
+      readinessTimeoutMs: readPositiveInt(env.VALKEY_READINESS_TIMEOUT_MS, 1000),
       keyPrefix: env.VALKEY_KEY_PREFIX ?? 'vaarg:',
+    },
+    hatchet: {
+      url: env.HATCHET_URL,
+      token: env.HATCHET_TOKEN,
+      enabled: env.HATCHET_ENABLED === 'true',
     },
   };
 }
@@ -44,7 +51,7 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
-function readTimeout(value: string | undefined, fallback: number): number {
+function readPositiveInt(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
   }
@@ -53,4 +60,8 @@ function readTimeout(value: string | undefined, fallback: number): number {
     return fallback;
   }
   return parsed;
+}
+
+export function logLevelOf(configuration: ApiConfiguration): LogLevel {
+  return configuration.app.logLevel;
 }

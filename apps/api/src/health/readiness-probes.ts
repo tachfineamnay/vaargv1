@@ -1,10 +1,5 @@
-export interface ReadinessProbeResult {
-  name: string;
-  status: 'ready' | 'not_ready' | 'unknown';
-  detail?: string;
-  latencyMs?: number;
-}
+import type { ReadinessCheck } from '@vaarg/shared';
 
 export interface ReadinessProbes {
-  check(): Promise<ReadinessProbeResult[]>;
+  check(): Promise<ReadinessCheck[]>;
 }

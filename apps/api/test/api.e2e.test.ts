@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import request from 'node:http';
 
-// These are live-boundary smoke tests. They only run when API_TEST_URL points at
-// an actually running API (e.g. started by scripts/certification/smoke.mjs or
-// docker compose). Without a live server they report NOT_RUN rather than failing.
+// Live-boundary smoke tests. They run only when API_TEST_URL points at a
+// running API; without a server they report NOT_RUN (skipped), not FAIL.
 const BASE_URL = process.env.API_TEST_URL;
 const enabled = Boolean(BASE_URL);
 
-function get(path: string): Promise<{ status: number; body: unknown }> {
+function get(path: string): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     const req = request.get(`${BASE_URL}${path}`, { timeout: 5000 }, (res) => {
       const chunks: Buffer[] = [];
@@ -20,7 +19,11 @@ function get(path: string): Promise<{ status: number; body: unknown }> {
         } catch {
           // keep raw text for assertion messages
         }
-        resolve({ status: res.statusCode ?? 0, body });
+        const headers: Record<string, string> = {};
+        for (const [key, value] of Object.entries(res.headers)) {
+          if (typeof value === 'string') headers[key] = value;
+        }
+        resolve({ status: res.statusCode ?? 0, body, headers });
       });
     });
     req.on('error', reject);
@@ -30,13 +33,15 @@ function get(path: string): Promise<{ status: number; body: unknown }> {
 }
 
 describe.skipIf(!enabled)('VAARG API (live smoke)', () => {
-  it('exposes liveness at /health', async () => {
-    const result = await get('/health');
-    expect(result.status).toBe(200);
-    const body = result.body as { status: string; service: string; version: string };
-    expect(body.status).toBe('ok');
-    expect(body.service).toBe('api');
-    expect(body.version).toBe('1.0.0');
+  it('exposes liveness at /health/live and /health', async () => {
+    for (const path of ['/health/live', '/health']) {
+      const result = await get(path);
+      expect(result.status).toBe(200);
+      const body = result.body as { status: string; service: string; version: string };
+      expect(body.status).toBe('ok');
+      expect(body.service).toBe('api');
+      expect(body.version).toBe('1.0.0');
+    }
   }, 10000);
 
   it('exposes /version metadata', async () => {
@@ -51,11 +56,22 @@ describe.skipIf(!enabled)('VAARG API (live smoke)', () => {
   it('reports readiness with explicit component checks', async () => {
     const result = await get('/health/ready');
     expect(result.status).toBe(200);
-    const body = result.body as { status: string; checks: { name: string; status: string }[] };
+    const body = result.body as {
+      status: string;
+      checks: { name: string; status: string; required: boolean }[];
+    };
     expect(['ready', 'not_ready']).toContain(body.status);
     expect(Array.isArray(body.checks)).toBe(true);
     expect(body.checks.map((check) => check.name)).toEqual(
       expect.arrayContaining(['database', 'valkey']),
     );
+  }, 10000);
+
+  it('assigns a request id header', async () => {
+    const result = await get('/health');
+    expect(result.status).toBe(200);
+    const requestId = result.headers['x-request-id'];
+    expect(typeof requestId).toBe('string');
+    expect(requestId!.length).toBeGreaterThanOrEqual(8);
   }, 10000);
 });

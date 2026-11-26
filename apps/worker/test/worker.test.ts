@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import pino from 'pino';
 import { JobRunner } from '../src/jobs/job-runner.js';
-import { createJsonLogger } from '@vaarg/shared';
 
 describe('worker job runner', () => {
   it('executes registered jobs and records lifecycle events', async () => {
-    const logger = createJsonLogger({ level: 'error' });
+    const logger = pino({ level: 'silent' });
     const calls: string[] = [];
     const runner = new JobRunner(
       [
@@ -24,7 +24,7 @@ describe('worker job runner', () => {
   });
 
   it('rejects unknown jobs without executing anything', async () => {
-    const logger = createJsonLogger({ level: 'error' });
+    const logger = pino({ level: 'silent' });
     const runner = new JobRunner([], logger);
     await expect(runner.run('missing', { jobId: 'x', attempt: 1 })).rejects.toThrow(
       'Unknown job: missing',
@@ -32,7 +32,7 @@ describe('worker job runner', () => {
   });
 
   it('propagates handler failures after logging them', async () => {
-    const logger = createJsonLogger({ level: 'error' });
+    const logger = pino({ level: 'silent' });
     const runner = new JobRunner(
       [
         {

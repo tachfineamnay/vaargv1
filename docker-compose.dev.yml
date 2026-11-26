@@ -1,0 +1,49 @@
+# VAARG V1 — local development infrastructure.
+# PostgreSQL 18 + pgvector, Valkey. Private internal network; no host socket,
+# no privileged containers. Ports are exposed only for local development.
+name: vaarg-dev
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vaarg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vaarg_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-vaarg}
+    ports:
+      - '5432:5432'
+    volumes:
+      # PostgreSQL 18 mounts data at /var/lib/postgresql (PGDATA /var/lib/postgresql/18/docker).
+      - vaarg_pg_dev:/var/lib/postgresql
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    shm_size: '256mb'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-vaarg} -d ${POSTGRES_DB:-vaarg}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - vaarg-internal
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    command: ['valkey-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - vaarg-internal
+
+networks:
+  vaarg-internal:
+    driver: bridge
+
+volumes:
+  vaarg_pg_dev:

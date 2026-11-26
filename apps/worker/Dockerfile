@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# VAARG V1 — Worker image.
 FROM node:24-alpine AS base
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
@@ -21,6 +22,7 @@ RUN pnpm --filter @vaarg/shared build && pnpm --filter @vaarg/worker build
 
 FROM base AS runtime
 ENV NODE_ENV=production
+WORKDIR /app
 COPY --from=build /app/apps/worker/dist ./apps/worker/dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/worker/node_modules ./apps/worker/node_modules
