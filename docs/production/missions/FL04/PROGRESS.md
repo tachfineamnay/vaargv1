@@ -13,3 +13,4 @@
 - Tests: 5 files, 47/47 PASS (`test/{web,catalog-client,host,params,page}.test.ts` + `test/support/stub-api.ts`). Full gates `npx turbo run lint typecheck build test --force`: 20/20 tasks PASS (evidence/turbo-checks.txt).
 - Live smoke: production `next start` + `test/support/smoke-stub.mjs` → 49/49 PASS incl. BFF session/consent flows (evidence/web-smoke.txt). Docker/PG/Valkey/live Shopify gates NOT_RUN final (no binaries); GRAPHIFY_BLOCKED final.
 - Bugs found & fixed by tests: zod4 `unrecognized_keys` (path []) killed whole queries → per-key drop (utm_* safe); `readVisitorCookie` returned bare value → full `name=value` pair; `parseStorefrontHost` second arg made optional for typed tests.
+- DELIVERY: SOURCE_SHA=1ee0f57aa4fd5fbd9d98e28474a3c0d5db8694ed, DELIVERED_SHA=741ff20 (branch arena/5d6debb8-vaargv1), PR #7 → main. All tasks00–final COMPLETE; VALIDATION table filled; STATUS.md P03 updated.
