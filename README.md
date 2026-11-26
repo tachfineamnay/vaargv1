@@ -2,7 +2,7 @@
 
 A production-grade adaptive, international Shopify headless storefront. Shopify owns commercial transactions; VAARG owns the experience, agentic intelligence and consented customer memory.
 
-**Status: documentation bootstrap. P00 is ready to start, not implemented. No production certification.**
+**Status: P00 industrial bootstrap implemented and locally certified (frozen install, lint, typecheck, tests, build, live smoke). Docker and live-provider gates NOT_RUN — executed by the external harness.**
 
 ## Start here
 - [AGENTS.md](AGENTS.md) — mandatory instructions for every coding agent.
