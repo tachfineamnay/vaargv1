@@ -3,6 +3,14 @@ import { parseAppEnv } from '@vaarg/shared';
 
 export interface ApiConfiguration {
   app: AppEnv;
+  /**
+   * Trusted proxy boundary. Forwarded headers (X-Forwarded-*) are ignored
+   * unless the deployment explicitly sets TRUST_PROXY=true behind a proxy
+   * it controls. Tenant identification always uses the direct Host header.
+   */
+  http: {
+    trustProxy: boolean;
+  };
   database: {
     url: string;
     readinessTimeoutMs: number;
@@ -27,6 +35,9 @@ export function loadApiConfiguration(env: NodeJS.ProcessEnv = process.env): ApiC
       PORT: env.PORT,
       LOG_LEVEL: env.LOG_LEVEL,
     }),
+    http: {
+      trustProxy: env.TRUST_PROXY === 'true',
+    },
     database: {
       url: requireUrl(env.DATABASE_URL, 'DATABASE_URL', ['postgres:', 'postgresql:']),
       readinessTimeoutMs: readPositiveInt(env.DATABASE_READINESS_TIMEOUT_MS, 1500),

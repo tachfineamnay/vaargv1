@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Header, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { CatalogService } from './catalog.service.js';
+import { authorizationHeaderOf } from '../common/request-context.js';
 
 @Controller('catalog')
 export class CatalogController {
@@ -16,20 +17,20 @@ export class CatalogController {
   @Header('Cache-Control', 'private, no-store')
   logout(@Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {
     if (Object.keys(query).length) throw new BadRequestException('Invalid request');
-    return this.catalogService.logout(request.headers.host, request.headers.authorization);
+    return this.catalogService.logout(request.headers.host, authorizationHeaderOf(request));
   }
 
   @Get('sync')
   @Header('Cache-Control', 'private, no-store')
   status(@Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {
     if (Object.keys(query).length) throw new BadRequestException('Invalid query');
-    return this.catalogService.sync(request.headers.host, request.headers.authorization, 'status');
+    return this.catalogService.sync(request.headers.host, authorizationHeaderOf(request), 'status');
   }
   @Post('sync')
   @Header('Cache-Control', 'private, no-store')
   start(@Body() body: unknown, @Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {
     if (Object.keys(query).length || (body !== undefined && (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length))) throw new BadRequestException('Invalid request');
-    return this.catalogService.sync(request.headers.host, request.headers.authorization, 'start');
+    return this.catalogService.sync(request.headers.host, authorizationHeaderOf(request), 'start');
   }
   @Post('sync/step')
   @Header('Cache-Control', 'private, no-store')
@@ -38,13 +39,13 @@ export class CatalogController {
     const controller = new AbortController();
     request.raw.once('aborted', () => controller.abort());
     reply.raw.once('close', () => { if (!reply.raw.writableEnded) controller.abort(); });
-    return this.catalogService.sync(request.headers.host, request.headers.authorization, 'step', controller.signal);
+    return this.catalogService.sync(request.headers.host, authorizationHeaderOf(request), 'step', controller.signal);
   }
   @Post('sync/delegation')
   @Header('Cache-Control', 'private, no-store')
   delegation(@Body() body: unknown, @Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {
     if (Object.keys(query).length) throw new BadRequestException('Invalid request');
-    return this.catalogService.delegate(request.headers.host, request.headers.authorization, body);
+    return this.catalogService.delegate(request.headers.host, authorizationHeaderOf(request), body);
   }
 
   @Get()

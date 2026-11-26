@@ -4,3 +4,4 @@ export * from './errors.js';
 export * from './store.js';
 export * from './telemetry.js';
 export * from './catalog.js';
+export * from './application.js';

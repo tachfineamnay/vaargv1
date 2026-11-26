@@ -10,7 +10,7 @@ import { verifyArgon2Hash } from './passwords.js';
 import type { AppDb } from '../db/client.js';
 
 type MerchantRole = 'owner' | 'marketing' | 'support';
-const MERCHANT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+export const MERCHANT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 // Public synthetic hash: equal-cost verification when the account is absent.
 const DUMMY_HASH = '$argon2id$v=19$m=19456,t=2,p=1$JrMrkgBb02qa4mWjZFSpMQ$dQCnb/8uGIqcqkZlonq+FkxUHqkBAFn+bHFxiLTbdQU';
 
