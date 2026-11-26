@@ -28,3 +28,22 @@ As of 2026-11-26: P00 clean industrial bootstrap IMPLEMENTED (clean-room rebuild
 
 ## Next exact action
 Codex: real Docker certification (compose up, build images, confirm /health/ready ready against live PG+Valkey). No P01 without instruction.
+
+
+## P01 — Core Data, Identity and Isolation (SOURCE DELIVERED)
+
+- **Status**: SOURCE DELIVERED. All 13 implementation items delivered as source.
+- **Base**: `2385a06d49976305fefa59c8d188357720a659e1` (P00 merged)
+- **Branch**: `arena/c1eaf44b-vaargv1`
+- **Deliverable**: `packages/persistence` (`@vaarg/persistence`) — Drizzle schema
+  (14 tables/6 domains), versioned migrations, RLS + restricted role, real argon2id
+  merchant auth, anonymous visitor sessions + rotation, purpose consents, transactional
+  inbox/outbox, idempotency/dedup/audit, Valkey session infrastructure, Zod API boundaries.
+- **Tests**: 17 unit tests PASS_REAL; 10 real-PostgreSQL integration tests written and
+  gated on DATABASE_URL. Docker/PostgreSQL unavailable in sandbox → real DB gates NOT_RUN;
+  Codex executes real Docker certification locally.
+- **AC mapping**: AC-24 (store isolation), AC-28 (fresh install/upgrade/restore),
+  AC-29 (no secrets/unnecessary PII).
+- **Checkpoints**: `docs/production/missions/P01/` (MISSION, TASKS, PROGRESS, DECISIONS,
+  VALIDATION, HANDOFF, evidence).
+- **Next**: Codex runs real PostgreSQL 18 + Valkey certification locally.

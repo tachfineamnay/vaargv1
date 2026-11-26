@@ -24,3 +24,18 @@ Owner override: **Arena performs all source implementation P00–P11. Codex perf
 ## Handoff
 - Update STATUS and mission files; distinguish implemented from verified. Report MISSION / SOURCE_SHA / DELIVERED_SHA, STATUS / TASKS, TESTS_REAL / TESTS_SIMULATED / FAIL / BLOCKED / NOT_RUN, ARTIFACT / CHECKPOINTS, NEXT_EXACT_ACTION / BLOCKERS.
 - A local checkpoint does not authorize deployment. No remote push, merge or deployment without approval.
+
+## P01 execution log
+
+- **Mission**: P01 — Core Data, Identity and Isolation
+- **Base SHA**: `2385a06d49976305fefa59c8d188357720a659e1` (P00 merged, PR #2)
+- **PRD SHA-256**: `7e49d94144b4fd24b8968652664c354d5d8949946d9d9773c8314cbb630f8596`
+- **Branch**: `arena/c1eaf44b-vaargv1`
+- **Scope**: 13 implementation items delivered in `packages/persistence`.
+- **Auth**: REAL argon2id merchant authentication (@node-rs/argon2); no mock/bypass.
+- **Isolation**: RLS (17 policies) + restricted `vaarg_app` role (NOBYPASSRLS) +
+  per-transaction SET LOCAL store context; composite store_id FKs.
+- **Migrations**: 2 versioned files; idempotent runner.
+- **Tests**: typecheck/build/unit PASS_REAL; 10 real-PG integration tests written,
+  gated on DATABASE_URL. Docker/PG unavailable in sandbox → real DB gates NOT_RUN.
+- **Result**: SOURCE DELIVERED. No push/merge/deployment performed.
