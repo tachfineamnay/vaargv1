@@ -5,8 +5,8 @@ As of 2026-11-26: P00 clean industrial bootstrap IMPLEMENTED (clean-room rebuild
 | Mission | Implementation | Verification |
 |---|---|---|
 | P00 Bootstrap | DONE (clean-room) | PASS_LOCAL_SOURCE (Docker/live NOT_RUN) |
-| P01 Core data / identity / isolation | TODO | NOT_RUN |
-| P02 Shopify / catalogue | TODO | NOT_RUN |
+| P01 Core data / identity / isolation | SOURCE DELIVERED; remediation needed | FAIL: PG18 regression suite |
+| P02 Shopify / catalogue | IN_PROGRESS; partial source only | NOT CERTIFIED |
 | P03 Storefront / design | TODO | NOT_RUN |
 | P04 Adaptive search / experience | TODO | NOT_RUN |
 | P05 Hermes / A2UI / AG-UI | TODO | NOT_RUN |
@@ -47,3 +47,11 @@ Codex: real Docker certification (compose up, build images, confirm /health/read
 - **Checkpoints**: `docs/production/missions/P01/` (MISSION, TASKS, PROGRESS, DECISIONS,
   VALIDATION, HANDOFF, evidence).
 - **Next**: Codex runs real PostgreSQL 18 + Valkey certification locally.
+
+## P02 — in progress (2026-11-26)
+
+Base: 599f8e664b32f40130745377eaa316e473637ed9. Partial Storefront adapter, scoped projection, import CLI and tests exist in the P02 working tree; HTTP catalog explicitly reports NOT_CONFIGURED pending trusted tenant resolution. PG18 synthetic import and populated migration upgrade passed. Real Shopify NOT_RUN. P01 PG18 regression suite has six failures; see missions/P02/VALIDATION.md. No P02 source delivery or release certification. Next: follow P02 HANDOFF.md.
+
+## P03 — initiated (2026-11-26)
+
+IN_PROGRESS; no storefront implementation or P03 verification yet. Cumulative P02 is incomplete and HTTP catalog is NOT_CONFIGURED; original mockups and brand assets absent. See missions/P03/HANDOFF.md.

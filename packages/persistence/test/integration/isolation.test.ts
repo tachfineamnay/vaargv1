@@ -12,7 +12,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { execSync } from 'node:child_process';
 
-const DATABASE_URL = process.env.DATABASE_URL ?? '';
+const DATABASE_URL = process.env.P01_TEST_DATABASE_URL ?? '';
+if (DATABASE_URL) { const parsed = new URL(DATABASE_URL); if (!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) || parsed.pathname !== '/vaarg_p01_test') throw new Error('A dedicated local test database is required'); }
 
 // Whether we can actually run against a real PostgreSQL.
 const PG_AVAILABLE = (() => {
@@ -70,7 +71,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
     try {
       const pool = new Pool({ connectionString: url, max: 2 });
       // Run migrations via the runner.
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       const result = await runMigrations(url);
       expect(result.applied.length).toBeGreaterThan(0);
       // Verify tables exist.
@@ -98,7 +99,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
       const pool = new Pool({ connectionString: url, max: 2 });
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       // First run.
       await runMigrations(url);
       // Second run should be a no-op (idempotent).
@@ -114,10 +115,10 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('enforces cross-store access rejection via RLS (AC-24)', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { seedSyntheticStores } = await import('../src/services/seed.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { seedSyntheticStores } = await import('../../src/services/seed.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -129,7 +130,7 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
       const [storeA, storeB] = all;
 
       // Read store A's customers within store A context — should see rows.
-      const { customers } = await import('../src/schema/identity.js');
+      const { customers } = await import('../../src/schema/identity.js');
       const aCustomers = await withStoreContext(handle, storeA.storeId, async (tx) =>
         tx.query.customers.findMany(),
       );
@@ -168,10 +169,10 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('enforces cross-store foreign key rejection', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb } = await import('../src/db/client.js');
-      const { stores, customerIdentities } = await import('../src/schema/identity.js');
+      const { createDb } = await import('../../src/db/client.js');
+      const { stores, customerIdentities } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -210,10 +211,10 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('enforces RLS on the restricted runtime role (no bypass)', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { stores } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       // Connect as the restricted vaarg_app role.
       const appUrl = url.replace(
@@ -252,16 +253,16 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('enforces merchant role boundaries', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
       const {
         stores,
         merchantUsers,
         storeMemberships,
-      } = await import('../src/schema/identity.js');
-      const { authenticateMerchant } = await import('../src/auth/merchant-auth.js');
-      const { createArgon2Hash } = await import('../src/auth/passwords.js');
+      } = await import('../../src/schema/identity.js');
+      const { authenticateMerchant } = await import('../../src/auth/merchant-auth.js');
+      const { createArgon2Hash } = await import('../../src/auth/passwords.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -309,15 +310,15 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('handles session expiration and rotation', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
       const {
         createVisitorSession,
         resolveVisitorSession,
         rotateVisitorSession,
-      } = await import('../src/sessions/visitor-sessions.js');
-      const { stores } = await import('../src/schema/identity.js');
+      } = await import('../../src/sessions/visitor-sessions.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -363,11 +364,11 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('records and enforces consent changes', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { recordConsent, getConsent } = await import('../src/services/consent.js');
-      const { stores, customers } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { recordConsent, getConsent } = await import('../../src/services/consent.js');
+      const { stores, customers } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -406,11 +407,11 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('deduplicates concurrent idempotent operations', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { claimIdempotencyKey } = await import('../src/services/idempotency.js');
-      const { stores } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { claimIdempotencyKey } = await import('../../src/services/idempotency.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);
@@ -448,12 +449,12 @@ describeIfPG('P01 integration — real PostgreSQL', () => {
   it('replays webhook inbox with dedup and rolls back outbox', async () => {
     const { url, cleanup } = await createIsolatedDb();
     try {
-      const { runMigrations } = await import('../src/db/migrate.js');
+      const { runMigrations } = await import('../../src/db/migrate.js');
       await runMigrations(url);
-      const { createDb, withStoreContext } = await import('../src/db/client.js');
-      const { receiveWebhook } = await import('../src/services/webhook-inbox.js');
-      const { appendOutboxEvent, markEventDispatched } = await import('../src/services/outbox.js');
-      const { stores } = await import('../src/schema/identity.js');
+      const { createDb, withStoreContext } = await import('../../src/db/client.js');
+      const { receiveWebhook } = await import('../../src/services/webhook-inbox.js');
+      const { appendOutboxEvent, markEventDispatched } = await import('../../src/services/outbox.js');
+      const { stores } = await import('../../src/schema/identity.js');
 
       const pool = new Pool({ connectionString: url, max: 2 });
       const handle = createDb(pool);

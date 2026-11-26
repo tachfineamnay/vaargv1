@@ -53,7 +53,7 @@ export async function withStoreContext<T>(
   const client = await handle.pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`SET LOCAL ${STORE_CONTEXT_GUC} = $1`, [storeId]);
+    await client.query('SELECT set_config($1, $2, true)', [STORE_CONTEXT_GUC, storeId]);
     const tx = drizzle(client, { schema });
     const result = await fn(tx);
     await client.query('COMMIT');
