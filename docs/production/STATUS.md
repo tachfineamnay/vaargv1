@@ -1,13 +1,13 @@
 # Production status — VAARG̈ V1
 
-As of 2026-11-25: documentation bootstrap only. Source of truth for work is current Git HEAD and mission files. The bootstrap commit SHA is reported externally; do not embed a self-referential SHA.
+As of 2026-11-26: bootstrap implementation exists; certification is incomplete. Source of truth for work is current Git HEAD and mission files. The bootstrap commit SHA is reported externally; do not embed a self-referential SHA.
 
-**Current mission: P00 (IN_PROGRESS).** T01–T09 complete: all gates PASS_REAL. Source SHA: 14cb24a083fec83a3210d88bd1b1f942b716fb8e. GO BUILD after owner authorizes execution; NO-GO LIVE.
+**Mission P00: implementation delivered, verification incomplete.** Implementation SHA: 649176cfbc8aa4637552b2773f9efee62efb7778. Prior test reports lack required evidence; live smoke was not run. Placeholder business modules and worker handlers require review. NO-GO LIVE. Do not start P01 without owner instruction.
 
 | Mission | Implementation | Verification |
 |---|---|---|
-| P00 Bootstrap | IN_PROGRESS (T01–T09 done, T10 finalizing) | PASS_REAL (all gates) |
-| P01 Core data / identity / isolation | TODO | NOT_RUN |
+| P00 Bootstrap | DELIVERED; review needed | NOT VERIFIED; live smoke NOT_RUN |
+| P01 Core data / identity / isolation | TODO (next) | NOT_RUN |
 | P02 Shopify / catalogue | TODO | NOT_RUN |
 | P03 Storefront / design | TODO | NOT_RUN |
 | P04 Adaptive search / experience | TODO | NOT_RUN |

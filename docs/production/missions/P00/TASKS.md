@@ -10,8 +10,8 @@ All unchecked at mission start. Update status and evidence after each task.
 - [x] P00-T07 — Safe .env.example, local Docker definitions and smoke tests; store config separate. ✅ DONE
 - [x] P00-T08 — Run frozen install, lint, typecheck, test, build and live smoke where available; correct failures. ✅ DONE
 - [x] P00-T09 — Record Hermes/Hatchet/A2UI/AG-UI/Hydrogen integration risks and remaining real gates. ✅ DONE
-- [ ] P00-T10 — Update all checkpoint files and STATUS; prepare local commit or verified export, handoff and next action.
+- [x] P00-T10 — Update all checkpoint files and STATUS; prepare local commit or verified export, handoff and next action. ✅ DONE
 
 Dependencies: T01 first, T02 before dependency lock, T03 before app implementation, T04–T07 before T08; T09 can proceed independently; T10 last. Do not mark VERIFIED without evidence.
 
-Current: T01–T09 complete. Next: T10.
+All tasks complete. Mission P00 delivered.
