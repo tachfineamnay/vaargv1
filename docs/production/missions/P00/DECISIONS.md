@@ -1,2 +1,2 @@
 # Decisions
-No other orchestration engine; Hatchet deferred to authorized mission. No speculative business modules. Free OpenRouter routes required for delegation are not exposed by available collaboration tools.
+No other orchestration engine; Hatchet deferred to authorized mission. No speculative business modules. Owner override: no mandatory delegation or model routing.
