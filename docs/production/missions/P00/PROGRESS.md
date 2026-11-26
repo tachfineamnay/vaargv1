@@ -9,7 +9,7 @@
 - Previous P00 app code present in tree (merged via PR #1) — will NOT be reused; preserved in git history.
 
 ## T02 — DONE
-- Created docs/production/ARENA_EXECUTION.md (execution and handoff rules per owner override).
+- Created docs/production/ARENA_EXECUTION.md (execution and checkpoint rules per owner override).
 - Updated MISSION.md and TASKS.md with source SHA + PRD SHA-256.
 
 Next exact action: T03 — rebuild root monorepo from the documentation baseline (remove previous app code, write fresh workspace config).
@@ -58,4 +58,7 @@ Next exact action: T11 — run all available checks, fix causes, record real vs 
 - Worker startup-failure behavior verified (exit 1 when required deps unreachable).
 - Docker unavailable in sandbox: Docker code + smoke scripts completed; real runtime gates remain NOT_RUN.
 
-Next exact action: T12 — finalize VALIDATION, STATUS, HANDOFF, SHA-256 manifest, coherent local commit.
+Next exact action: T12 — finalize VALIDATION, STATUS, PROGRESS, SHA-256 manifest, coherent local commit.
+
+
+2026-11-26 — Execution procedure updated by owner. The P00 historical delivery is retained in Git; Docker image builds, PG18/Valkey connectivity, and real provider gates remain pending. Reproduction: pnpm install --frozen-lockfile; pnpm lint; pnpm typecheck; pnpm test; pnpm build; pnpm certify; node scripts/certification/smoke.mjs with apps running. Do not rerun P00 from scratch. Continue the authorized cumulative Arena mission.

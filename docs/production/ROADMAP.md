@@ -7,12 +7,13 @@ Référence normative : `VAARG_V1_PRD_INDUSTRIEL_v1.0.md` (sections 0–16, AC-0
 ## 1. Doctrine BUILD FIRST
 
 - Un dépôt, une V1, des incréments intégrés. Pas de projet de démonstration ni de refonte graphique. Conserver les maquettes réelles lorsqu'elles sont disponibles. Une seconde configuration fictive sert uniquement à prouver la portabilité et l'isolation, pas à construire un SaaS multi-marchands.
-- Arena produit le code et les tests qu'il peut réellement exécuter dans son environnement. DeepSeek Harness intègre et teste localement, notamment Docker et fournisseurs. Codex audite les diffs et certifie les parcours sur un environnement réel. Ces rôles sont des propositions opérationnelles ; les capacités effectives d'Arena doivent être vérifiées, pas supposées.
+- Arena produit tout le code P00–P11 et les tests qu'il peut exécuter. Codex intervient après la campagne pour corriger, intégrer et certifier localement. Les capacités d'Arena doivent être vérifiées.
 - Cycle : lire → implémenter un incrément → exécuter tests disponibles → corriger → checkpoint → transférer → test live local. Pas de CI externe. Pas de push, merge, déploiement ou changement de domaine sans autorisation explicite.
 - Une mission bloquée par un service externe continue sur ses tâches indépendantes, avec états d'indisponibilité et tests de contrat. Les fixtures sont explicitement fictives ; jamais de prix ou commande inventés en production. Les critères réels dépendants restent BLOCKED/NOT_RUN.
 - Pas de fallback IA payant implicite. Aucune clé dans Arena, Git, prompts, screenshots ou artefacts ; injection serveur locale via secrets. Utiliser des données synthétiques dans Arena, aucun export client réel ni transcript privé.
 
 ## 2. Source de vérité et persistance anti-compression (OBLIGATOIRE)
+Révision procédurale du 26 novembre 2026 : cinq fichiers de suivi et preuves, sans document ni étape de transfert distincte. PROGRESS contient l'action suivante, les commandes de reprise et les blocages. Les critères produit et gates restent inchangés.
 
 Chaque mission utilise des fichiers réels dans la sandbox du dépôt, pas seulement des messages de chat. Chemins relatifs, adaptés à l'environnement réellement disponible :
 
@@ -27,7 +28,6 @@ docs/production/missions/Pxx/
   PROGRESS.md                     # checkpoint courant, changements, suite
   DECISIONS.md                    # arbitrages, justification, impact PRD
   VALIDATION.md                   # commandes, sorties, statuts, preuves
-  HANDOFF.md                      # transfert et instructions de reprise
   evidence/                       # preuves expurgées, petites et reproductibles
 ```
 
@@ -36,7 +36,7 @@ docs/production/missions/Pxx/
 2. Écrire MISSION et TASKS avant le code. Décomposer en petites tâches numérotées et noter les préconditions. Les critères PRD ne peuvent être abaissés sans décision explicite. Préserver les sections sources exactes et le hash du PRD.
 3. Avant chaque tâche, relire les fichiers de mission et le code touché. Après chaque tâche, même après échec : mettre à jour TASKS et PROGRESS, DECISIONS si nécessaire, VALIDATION si un test a été lancé. Marquer les tâches prouvées seulement. Noter l'action suivante exacte, les fichiers concernés et les blocages.
 4. Après compression de contexte, interruption ou changement d'agent : ne pas se fier au souvenir du chat. Relire fichiers et diff Git, recouper l'état réel ; si contradiction, reprendre l'état réel et documenter la correction. Ne pas recommencer depuis zéro.
-5. À la fin d'un incrément, écrire HANDOFF avec SHA de base, SHA livré si commit possible, fichiers, migrations, commandes de reprise, dépendances exactes, preuve et prochain pas. Commit local cohérent si autorisé ; aucun push automatique. Le fichier ne peut contenir le hash de son propre commit : donner le SHA final dans le rapport de sortie ou un manifeste externe.
+5. À la fin d'un incrément, compléter PROGRESS avec SHA de base, SHA livré si commit possible, fichiers, migrations, commandes de reprise, dépendances exactes, preuve et prochain pas. Commit local cohérent si autorisé ; aucun push automatique. Le fichier ne peut contenir le hash de son propre commit : donner le SHA final dans le rapport de sortie ou un manifeste externe.
 6. Si Git ou téléchargement n'est pas disponible : remettre un patch ou snapshot téléchargeable si l'environnement le permet, avec manifeste des fichiers modifiés/supprimés et checksum SHA-256. Sinon déclarer transfert BLOCKED et fournir les éléments effectivement exportables. Ne pas prétendre avoir transféré le code. Ne jamais inclure `.env`, tokens, données client, node_modules ou caches de build dans l'archive.
 
 La sandbox peut perdre son état entre sessions : exporter les checkpoints et les réintégrer au dépôt local après chaque mission. Une réponse en prose ne remplace pas un artefact. Pas de suppression de fichiers existants non liée à la mission, pas de `git reset --hard`, clean destructif ou force-push.
@@ -181,9 +181,9 @@ NEXT_EXACT_ACTION / EXTERNAL_BLOCKERS
 ```
 Le détail reste dans les fichiers. Le rapport de chat ne doit pas consommer le budget de code.
 
-## 8. Transfert local et recette
+## 8. Intégration locale et recette finale
 
-DeepSeek Harness : lire le checkpoint, vérifier SHA et diff, intégrer sans écraser le travail local, exécuter les commandes en attente sur Docker et services autorisés, corriger uniquement la mission, mettre à jour les preuves. Codex : audit indépendant du diff et des invariants, répéter les tests critiques, refuser les PASS sans preuve ; rapporter les écarts et leur impact avant validation. En cas de conflit, réconcilier le code, ne pas appliquer aveuglément une archive plus ancienne. Ne pas utiliser un service externe sans les secrets et droits autorisés, ni remplacer l'intégration par un mock en production.
+Codex, après P11 : lire les checkpoints, vérifier SHA et diff, intégrer sans écraser le travail local, exécuter les commandes en attente sur Docker et services autorisés, corriger les défauts identifiés, mettre à jour les preuves. Audit indépendant du diff et des invariants, répéter les tests critiques, refuser les PASS sans preuve ; rapporter les écarts et leur impact avant validation. En cas de conflit, réconcilier le code, ne pas appliquer aveuglément une archive plus ancienne. Ne pas utiliser un service externe sans les secrets et droits autorisés, ni remplacer l'intégration par un mock en production.
 
 GO lancement du développement : P00 peut commencer dès disponibilité du PRD et du plan. GO mise en production : seulement après P10/P11 et validation explicite ; aucune échéance ou disponibilité garantie. Les étapes restantes de certification détaillée sont à formaliser et automatiser lors de P10. Un lancement limité à la vitrine nécessite un arbitrage de périmètre explicite ; il n'est pas un GO V1 complète.
 

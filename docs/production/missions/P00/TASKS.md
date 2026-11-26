@@ -12,6 +12,6 @@ Atomic, dependency-ordered. Update status and evidence after each task.
 - [x] P00-T09 — Verification: meaningful behavioral tests, root lint/typecheck/test/build/frozen-install/local smoke commands.
 - [x] P00-T10 — Review Hermes, Hatchet, A2UI, AG-UI, Hydrogen integration constraints from official sources.
 - [x] P00-T11 — Run all available checks, fix causes, record real vs simulated evidence.
-- [x] P00-T12 — Update STATUS + all checkpoints, SHA-256 manifest, coherent local commit, handoff.
+- [x] P00-T12 — Update STATUS + all checkpoints, SHA-256 manifest, coherent local commit.
 
 Dependencies: T01 first; T02 before coding; T03 before contracts/apps; T04 before T05–T07; T08 before T09 live smoke; T10 independent; T11 after T03–T09; T12 last.

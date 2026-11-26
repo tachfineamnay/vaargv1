@@ -14,6 +14,6 @@ Atomic, dependency-ordered. Update status and evidence after each task.
 - [ ] P01-T11 — RLS policies + restricted runtime role + composite FKs.
 - [ ] P01-T12 — Integration tests: fresh migration, populated upgrade, cross-store rejection, RLS, sessions, consent, idempotency, inbox/outbox.
 - [ ] P01-T13 — Run all available checks; fix causes; record real vs simulated.
-- [ ] P01-T14 — Update STATUS + checkpoints, SHA-256 manifest, coherent local commit, handoff.
+- [ ] P01-T14 — Update STATUS + checkpoints, SHA-256 manifest, coherent local commit.
 
 Dependencies: T01 first; T02 before coding; T03 before T04–T11; T12 after T03–T11; T13 after T12; T14 last.

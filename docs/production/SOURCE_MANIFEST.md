@@ -1,6 +1,6 @@
 # Source integrity
 
-The following files are exact copies of the previously delivered documents. Repository paths are canonical aliases of their original filenames. References to original attachment names in these documents mean these paths.
+The hashes below identify the exact original documents at bootstrap commit `b0943dd8cd87626cc7c8ac20979eedc830a3d5e9`. Repository paths are canonical aliases. The PRD remains unchanged; ROADMAP.md and prompts/P00.md have an owner-authorized execution-only revision dated 2026-11-26 removing the separate transfer document/stage and adopting Arena-first production. The original bytes and hashes remain verifiable at the bootstrap commit; current revised files are versioned by Git. No product acceptance criteria are changed.
 
 | Original | Repository path | SHA-256 |
 |---|---|---|

@@ -5,7 +5,7 @@ As of 2026-11-26: P00 clean industrial bootstrap IMPLEMENTED (clean-room rebuild
 | Mission | Implementation | Verification |
 |---|---|---|
 | P00 Bootstrap | DONE (clean-room) | PASS_LOCAL_SOURCE (Docker/live NOT_RUN) |
-| P01 Core data / identity / isolation | TODO | NOT_RUN |
+| P01 Core data / identity / isolation | SOURCE DELIVERED | Real DB gates NOT_RUN |
 | P02 Shopify / catalogue | TODO | NOT_RUN |
 | P03 Storefront / design | TODO | NOT_RUN |
 | P04 Adaptive search / experience | TODO | NOT_RUN |
@@ -27,7 +27,7 @@ As of 2026-11-26: P00 clean industrial bootstrap IMPLEMENTED (clean-room rebuild
 - certify.sh + smoke.mjs; integration risk review (Hermes/Hatchet/A2UI/AG-UI/Hydrogen).
 
 ## Next exact action
-Codex: real Docker certification (compose up, build images, confirm /health/ready ready against live PG+Valkey). No P01 without instruction.
+P00 live Docker gates remain pending for final Codex certification. Continue Arena source missions only upon owner instruction.
 
 
 ## P01 — Core Data, Identity and Isolation (SOURCE DELIVERED)
@@ -45,5 +45,5 @@ Codex: real Docker certification (compose up, build images, confirm /health/read
 - **AC mapping**: AC-24 (store isolation), AC-28 (fresh install/upgrade/restore),
   AC-29 (no secrets/unnecessary PII).
 - **Checkpoints**: `docs/production/missions/P01/` (MISSION, TASKS, PROGRESS, DECISIONS,
-  VALIDATION, HANDOFF, evidence).
-- **Next**: Codex runs real PostgreSQL 18 + Valkey certification locally.
+  VALIDATION, evidence).
+- **Next**: P02 in Arena on the cumulative branch, when authorized. Real PostgreSQL 18 + Valkey certification remains pending for final Codex validation.

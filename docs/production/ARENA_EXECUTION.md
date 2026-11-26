@@ -8,8 +8,9 @@ Owner override: **Arena performs all source implementation P00–P11. Codex perf
 - Do not silently change acceptance criteria. Record conflicts and obtain a decision if material.
 
 ## Disk-first memory (anti-compaction) — mandatory
+No separate transfer report/file or intermediate stop. PROGRESS.md holds the next task and recovery instructions. Continue the authorized mission until all independent source tasks are complete. A missing live service blocks only its real gate, not independent coding.
 1. Inspect actual cwd, git status, HEAD, remote and existing changes. Never reset or overwrite unrelated work. Read required documents from disk, not chat memory.
-2. Maintain `docs/production/missions/Pxx/{MISSION,TASKS,PROGRESS,DECISIONS,VALIDATION,HANDOFF}.md` and `evidence/`. Before coding: record source SHA and PRD SHA-256; create numbered atomic tasks with dependencies.
+2. Maintain `docs/production/missions/Pxx/{MISSION,TASKS,PROGRESS,DECISIONS,VALIDATION}.md` and `evidence/`. Before coding: record source SHA and PRD SHA-256; create numbered atomic tasks with dependencies.
 3. Before EVERY task, read the mission files and relevant actual source. After EVERY task, including failures, update TASKS and PROGRESS, append decisions and executed-test evidence, and record the exact next action.
 4. On compaction or interruption, re-read checkpoints and the actual git diff; reconcile stale notes without inventing completion. Resume the first incomplete task. Never restart completed work. A checkpoint is not a terminal delivery.
 5. Keep a coherent local commit when authorized; otherwise export a patch/snapshot with changed/deleted paths and SHA-256. Report transfer BLOCKED if impossible.
@@ -21,7 +22,7 @@ Owner override: **Arena performs all source implementation P00–P11. Codex perf
 - PASS_REAL proves only its actual scope; PASS_SIMULATED never satisfies a real integration gate. FAIL/BLOCKED/NOT_RUN are valid honest outcomes. Unavailable local gates remain BLOCKED or NOT_RUN. Do not claim VERIFIED_LOCAL.
 - Continue independent tasks while external access is blocked.
 
-## Handoff
+## Mission completion
 - Update STATUS and mission files; distinguish implemented from verified. Report MISSION / SOURCE_SHA / DELIVERED_SHA, STATUS / TASKS, TESTS_REAL / TESTS_SIMULATED / FAIL / BLOCKED / NOT_RUN, ARTIFACT / CHECKPOINTS, NEXT_EXACT_ACTION / BLOCKERS.
 - A local checkpoint does not authorize deployment. No remote push, merge or deployment without approval.
 
