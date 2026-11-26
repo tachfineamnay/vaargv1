@@ -11,6 +11,15 @@ Owner decision 2026-11-26: no separate transfer/termination document or stage. U
 4. On resume, reread files and actual diff; reconcile stale notes without inventing completion. The filesystem and Git are the working memory, not the chat. Keep checkpoints with code in the cumulative source. Verify the actual revision before the next mission.
 5. Keep a coherent local commit when authorized; otherwise export patch/snapshot with changed/deleted paths and SHA-256. Report transfer BLOCKED if impossible. Never push automatically, force-push, reset --hard, clean destructively or overwrite unrelated work.
 
+## Mandatory Graphify-first development
+Graphify is required for every coding, architecture, review, debugging and certification agent (Arena, Codex, DeepSeek, Claude, Gemini and any subagent). Follow [the Graphify workflow](docs/production/GRAPHIFY.md). This is developer tooling, not a VAARG runtime dependency.
+- At mission entry and after checkout/pull/compaction: verify the actual Git revision and Graphify version; build or refresh the local code graph before exploring application source.
+- Before EVERY implementation or audit task: run a focused `graphify query`, use `graphify path` or `graphify explain` where helpful, then open the exact referenced source and normative documents. Never replace source verification with graph inference.
+- After each coherent code change/task, run `graphify update .` before the next query or checkpoint. Record graph status, command/exit code, revision and concise findings in existing PROGRESS/VALIDATION files, not a separate handoff.
+- Default to local AST-only extraction (`graphify extract . --code-only`); no API keys, semantic cloud extraction, external source uploads, paid fallback or production data.
+- Missing Graphify, failed extraction or unusable/stale graph: attempt permitted local remediation; record GRAPHIFY_BLOCKED and request owner approval for any temporary bypass. Do not silently skip the graph or invent results. Other unavailable provider gates follow normal mission rules.
+- Ignore generated graph output, caches, secrets and nested worktrees. Never publish raw graph artifacts to this public repository without explicit review and approval.
+
 ## Build and verification
 Implement real vertical slices, minimal useful dependencies, strict TS, Zod boundary validation, ports/adapters; no empty pretend packages or mock-only production routes. Follow the actual lockfile, exact stable versions, reproducible Docker. No external CI; test locally/self-hosted. Run available install/typecheck/lint/test/build/smoke commands and fix causes, not tests. Record exact command, environment, exit code, tested SHA, evidence and limitations. PASS_REAL proves only its actual scope; PASS_SIMULATED never satisfies a real integration gate. FAIL/BLOCKED/NOT_RUN are valid honest outcomes. Continue independent tasks while external access is blocked. See [certification](docs/production/CERTIFICATION.md).
 

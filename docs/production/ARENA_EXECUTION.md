@@ -15,6 +15,9 @@ No separate transfer report/file or intermediate stop. PROGRESS.md holds the nex
 4. On compaction or interruption, re-read checkpoints and the actual git diff; reconcile stale notes without inventing completion. Resume the first incomplete task. Never restart completed work. A checkpoint is not a terminal delivery.
 5. Keep a coherent local commit when authorized; otherwise export a patch/snapshot with changed/deleted paths and SHA-256. Report transfer BLOCKED if impossible.
 
+## Mandatory Graphify
+Every agent must follow [GRAPHIFY.md](GRAPHIFY.md) and AGENTS.md: initialize/refresh the local AST-only graph at entry, query before each task, verify referenced source, update after each coherent change, record evidence in existing checkpoints and resume from current graph after compaction. No silent bypass or paid semantic extraction. A blocked graph requires owner approval before bypass.
+
 ## Build and verification
 - Implement real vertical slices, minimal useful dependencies, strict TS, Zod boundary validation, ports/adapters. No empty pretend packages, no mock-only production routes, no canary foundations, no unresolved peer conflicts, no empty business modules, no speculative domain schemas, no meaningless assertions, no fabricated success, no production mocks.
 - Follow the actual lockfile, exact stable versions, reproducible Docker. No external CI; test locally/self-hosted.

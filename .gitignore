@@ -45,3 +45,7 @@ Thumbs.db
 /.p02-source/
 /.worktrees/
 /P02-checkpoint-*/
+
+# Graphify generated local artifacts
+/graphify-out/
+/graph.json
