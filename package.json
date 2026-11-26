@@ -2,7 +2,7 @@
   "name": "vaargv1",
   "version": "1.0.0",
   "private": true,
-  "description": "VAARG V1 \u2014 industrial adaptive Shopify headless storefront",
+  "description": "VAARG V1 — industrial adaptive Shopify headless storefront",
   "packageManager": "pnpm@10.15.0",
   "engines": {
     "node": ">=22.22.3"
@@ -19,8 +19,15 @@
     "test:watch": "turbo run test:watch",
     "smoke": "node scripts/certification/smoke.mjs",
     "certify": "bash scripts/certification/certify.sh",
-    "db:up": "docker compose -f docker-compose.yml up -d",
-    "db:down": "docker compose -f docker-compose.yml down -v"
+    "db:up": "docker compose -f docker-compose.dev.yml up -d",
+    "db:up:prod": "docker compose -f docker-compose.prod.yml up -d",
+    "db:down": "docker compose -f docker-compose.dev.yml down -v",
+    "db:down:prod": "docker compose -f docker-compose.prod.yml down -v"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
@@ -30,10 +37,5 @@
     "turbo": "2.11.13",
     "typescript": "5.9.3",
     "typescript-eslint": "8.74.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }

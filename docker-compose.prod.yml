@@ -1,0 +1,46 @@
+# VAARG V1 — production infrastructure.
+# Same images as development; no ports published, no host socket, no privileged
+# containers. All services on a private internal network. Configuration and
+# secrets are supplied through the deployment environment (.env), never here.
+name: vaarg-prod
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - vaarg_pg_prod:/var/lib/postgresql
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    shm_size: '256mb'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - vaarg-internal
+    # No ports published in production.
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    command: ['valkey-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - vaarg-internal
+
+networks:
+  vaarg-internal:
+    driver: bridge
+
+volumes:
+  vaarg_pg_prod:

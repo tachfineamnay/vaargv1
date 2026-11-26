@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
-  healthSchema,
+  livenessSchema,
+  readinessSchema,
   type Health,
   type Readiness,
-  readinessSchema,
 } from '@vaarg/shared';
 import type { ReadinessProbes } from './readiness-probes.js';
 
@@ -12,7 +12,7 @@ const startedAt = Date.now();
 @Injectable()
 export class HealthService {
   build(service: string, version: string): Health {
-    return healthSchema.parse({
+    return livenessSchema.parse({
       status: 'ok',
       service,
       version,
@@ -28,9 +28,12 @@ export class ReadinessService {
 
   async build(service: string, version: string): Promise<Readiness> {
     const checks = await this.probes.check();
-    const ready = checks.every((check) => check.status === 'ready');
+    const requiredReady = checks
+      .filter((check) => check.required)
+      .every((check) => check.status === 'ready');
+
     return readinessSchema.parse({
-      status: ready ? 'ready' : 'not_ready',
+      status: requiredReady ? 'ready' : 'not_ready',
       service,
       version,
       checks,

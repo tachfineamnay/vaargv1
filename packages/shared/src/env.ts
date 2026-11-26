@@ -11,20 +11,30 @@ export const PORT_ENV_SCHEMA = z
 
 export const hostSchema = z.string().min(1).default('0.0.0.0');
 
+export const LOG_LEVEL_SCHEMA = z.enum([
+  'trace',
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+  'silent',
+]);
+
+export type LogLevel = z.infer<typeof LOG_LEVEL_SCHEMA>;
+
 export type AppEnv = {
   nodeEnv: 'development' | 'test' | 'production';
   host: string;
   port: number;
-  logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+  logLevel: LogLevel;
 };
 
 export const APP_ENV_SCHEMA = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: hostSchema,
   PORT: PORT_ENV_SCHEMA.default(3000),
-  LOG_LEVEL: z
-    .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
-    .default('info'),
+  LOG_LEVEL: LOG_LEVEL_SCHEMA.default('info'),
 });
 
 export type AppEnvInput = z.input<typeof APP_ENV_SCHEMA>;

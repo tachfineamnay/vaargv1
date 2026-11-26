@@ -26,8 +26,13 @@ export class HealthController {
     private readonly readinessService: ReadinessService,
   ) {}
 
-  @Get()
+  @Get('live')
   live(): Health {
+    return this.healthService.build('api', appVersion());
+  }
+
+  @Get()
+  liveAlias(): Health {
     return this.healthService.build('api', appVersion());
   }
 

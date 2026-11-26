@@ -27,27 +27,3 @@ export const NAVIGATION: NavigationItem[] = [
   { label: 'Atelier', href: '/atelier' },
   { label: 'Journal', href: '/journal' },
 ];
-
-export interface CollectionTile {
-  id: string;
-  title: string;
-  description: string;
-}
-
-export const COLLECTIONS: CollectionTile[] = [
-  {
-    id: 'seating',
-    title: 'Seating',
-    description: 'Sculpted lounges and statement chairs for the modern salon.',
-  },
-  {
-    id: 'lighting',
-    title: 'Lighting',
-    description: 'Warm, layered illumination shaped for interiors with presence.',
-  },
-  {
-    id: 'objects',
-    title: 'Objects',
-    description: 'Sculptural pieces that carry heritage and restraint.',
-  },
-];

@@ -1,45 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import {
-  catalogItemSchema,
-  catalogListSchema,
   catalogQuerySchema,
+  echoResponseSchema,
+  parseStoreContext,
   STORE_ID_SCHEMA,
-  type CatalogItem,
   type CatalogList,
 } from '@vaarg/shared';
-import { DatabaseClient } from '../infra/database-client.js';
 
+/**
+ * Catalog boundary. P00 intentionally avoids premature business schemas:
+ * this endpoint validates the store context and query contract and returns a
+ * typed, honest response. Actual catalog reads against Shopify belong to P02.
+ */
 @Injectable()
 export class CatalogService {
-  constructor(private readonly database: DatabaseClient) {}
-
   async list(query: unknown, storeId: string): Promise<CatalogList> {
     const parsed = catalogQuerySchema.parse(query ?? {});
     const safeStore = STORE_ID_SCHEMA.parse(storeId);
+    const context = parseStoreContext({ storeId: safeStore, market: 'default' });
 
-    const params: unknown[] = [safeStore];
-    let sql = `SELECT id, store_id AS "storeId", title, status
-               FROM catalog_items
-               WHERE store_id = $1`;
-    if (parsed.cursor) {
-      params.push(parsed.cursor);
-      sql += ` AND id > $2`;
-    }
-    sql += ` ORDER BY id ASC LIMIT $${params.length + 1}`;
-    params.push(parsed.limit + 1);
-
-    const rows = await this.database.query<Record<string, unknown>>(sql, params);
-    const items: CatalogItem[] = rows.slice(0, parsed.limit).map((row) =>
-      catalogItemSchema.parse({
-        id: String(row.id),
-        storeId: String(row.storeId),
-        title: String(row.title),
-        status: row.status as CatalogItem['status'],
-      }),
-    );
-    const nextCursor =
-      rows.length > parsed.limit ? String(rows[rows.length - 1]?.id ?? '') || null : null;
-
-    return catalogListSchema.parse({ items, nextCursor });
+    return echoResponseSchema.parse({
+      message: `catalog query accepted for store ${context.storeId} (limit ${parsed.limit})`,
+      storeId: context.storeId,
+      receivedAt: new Date().toISOString(),
+    });
   }
 }

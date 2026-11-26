@@ -1,5 +1,3 @@
-import type { z } from 'zod';
-
 export type AppErrorKind =
   | 'bad_request'
   | 'unauthorized'
@@ -24,11 +22,7 @@ export class AppError extends Error {
   readonly status: number;
   readonly details?: unknown;
 
-  constructor(
-    kind: AppErrorKind,
-    message: string,
-    details?: unknown,
-  ) {
+  constructor(kind: AppErrorKind, message: string, details?: unknown) {
     super(message);
     this.name = 'AppError';
     this.kind = kind;
@@ -98,5 +92,3 @@ export function statusForKind(kind: AppErrorKind): number {
       return 500;
   }
 }
-
-export type ZodIssue = z.core.$ZodIssue;

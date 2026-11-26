@@ -1,3 +1,5 @@
+import type { LogLevel } from './env.js';
+
 export interface Logger {
   trace(message: string, fields?: Record<string, unknown>): void;
   debug(message: string, fields?: Record<string, unknown>): void;
@@ -7,36 +9,34 @@ export interface Logger {
   fatal(message: string, fields?: Record<string, unknown>): void;
 }
 
-export interface JsonLoggerOptions {
-  level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
-}
-
-const LEVEL_ORDER: Record<JsonLoggerOptions['level'], number> = {
+const LEVEL_ORDER: Record<LogLevel, number> = {
   trace: 10,
   debug: 20,
   info: 30,
   warn: 40,
   error: 50,
   fatal: 60,
+  silent: 100,
 };
 
-export function createJsonLogger(options: JsonLoggerOptions): Logger {
-  const threshold = LEVEL_ORDER[options.level];
+export function createJsonLogger(level: LogLevel): Logger {
+  const threshold = LEVEL_ORDER[level];
 
   const emit = (
-    level: keyof typeof LEVEL_ORDER,
+    target: 'stdout' | 'stderr',
+    targetLevel: keyof typeof LEVEL_ORDER,
     message: string,
     fields?: Record<string, unknown>,
   ): void => {
-    if (LEVEL_ORDER[level] < threshold) {
+    if (LEVEL_ORDER[targetLevel] < threshold) {
       return;
     }
     const line = JSON.stringify({
-      level,
+      level: targetLevel,
       message,
       ...(fields ?? {}),
     });
-    if (level === 'error' || level === 'fatal') {
+    if (target === 'stderr') {
       process.stderr.write(`${line}\n`);
     } else {
       process.stdout.write(`${line}\n`);
@@ -44,12 +44,12 @@ export function createJsonLogger(options: JsonLoggerOptions): Logger {
   };
 
   return {
-    trace: emit.bind(null, 'trace'),
-    debug: emit.bind(null, 'debug'),
-    info: emit.bind(null, 'info'),
-    warn: emit.bind(null, 'warn'),
-    error: emit.bind(null, 'error'),
-    fatal: emit.bind(null, 'fatal'),
+    trace: (message, fields) => emit('stdout', 'trace', message, fields),
+    debug: (message, fields) => emit('stdout', 'debug', message, fields),
+    info: (message, fields) => emit('stdout', 'info', message, fields),
+    warn: (message, fields) => emit('stdout', 'warn', message, fields),
+    error: (message, fields) => emit('stderr', 'error', message, fields),
+    fatal: (message, fields) => emit('stderr', 'fatal', message, fields),
   };
 }
 

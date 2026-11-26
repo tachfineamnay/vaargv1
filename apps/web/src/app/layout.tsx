@@ -14,8 +14,11 @@ export default function RootLayout({ children }: { children: ReactNode }): React
   return (
     <html lang="en">
       <body>
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         <SiteHeader />
-        <main>{children}</main>
+        <main id="main">{children}</main>
         <footer className="site-footer">
           <p>
             {SITE_CONFIG.name} — Shopify owns transactions; VAARG owns the experience and

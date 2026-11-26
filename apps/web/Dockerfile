@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# VAARG V1 — Web image (standalone Next.js output).
 FROM node:24-alpine AS base
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate

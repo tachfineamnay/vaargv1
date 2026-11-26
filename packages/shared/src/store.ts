@@ -6,14 +6,15 @@ export const STORE_ID_SCHEMA = z
   .max(64)
   .regex(/^[a-zA-Z0-9_-]+$/, 'STORE_ID may only contain alphanumerics, dashes and underscores');
 
+export const marketSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'market may only contain alphanumerics, dashes and underscores');
+
 export const storeContextSchema = z.object({
   storeId: STORE_ID_SCHEMA,
-  market: z
-    .string()
-    .min(1)
-    .max(32)
-    .regex(/^[a-zA-Z0-9_-]+$/, 'market may only contain alphanumerics, dashes and underscores')
-    .default('default'),
+  market: marketSchema.default('default'),
 });
 
 export type StoreContext = z.infer<typeof storeContextSchema>;
