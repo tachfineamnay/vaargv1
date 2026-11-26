@@ -1,42 +1,20 @@
-import 'reflect-metadata';
 import { setupLogger } from './config/logger';
 import { createValkeyConnection } from './config/valkey';
-import { registerJobs } from './jobs/index';
-import { config } from './config/env';
+import { startWorker } from './lifecycle';
 
 const logger = setupLogger();
-
 async function bootstrap() {
-  logger.info('Starting VAARG Worker...');
-
-  // Create Valkey connection
   const connection = createValkeyConnection();
-
-  // Register job processors
-  const workers = registerJobs(connection);
-
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, 'Shutting down worker...');
-    await Promise.all(workers.map((w) => w.close()));
-    await connection.quit();
-    logger.info('Worker shutdown complete');
-    process.exit(0);
+  const stop = await startWorker(connection);
+  logger.info('Worker ready; no workflows registered');
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    try { await stop(); process.exitCode = 0; }
+    catch (err) { logger.error({ err }, 'Shutdown failed'); process.exitCode = 1; }
   };
-
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-
-  logger.info(
-    {
-      queues: workers.map((w) => w.name),
-      concurrency: config.WORKER_CONCURRENCY,
-    },
-    'Worker started successfully'
-  );
+  process.once('SIGTERM', () => void shutdown());
+  process.once('SIGINT', () => void shutdown());
 }
-
-bootstrap().catch((err) => {
-  logger.error({ err }, 'Failed to start worker');
-  process.exit(1);
-});
+bootstrap().catch((err: unknown) => { logger.error({ err }, 'Worker startup failed'); process.exit(1); });

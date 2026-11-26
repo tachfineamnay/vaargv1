@@ -23,3 +23,5 @@ As of 2026-11-26: bootstrap implementation exists; certification is incomplete. 
 Arena runtime/terminal/Git/export capability, exact package versions, reference mockups, authorized Storefront token, Admin/Customer Account and historical orders access, engraving/markets, direct Gemini/DeepSeek key and limits, Hermes isolation and transport, email/domain/permissions, local Docker and deployment resources, licensing and data policies. None prevents beginning independent P00 work.
 
 Update after each increment with mission, source revision, status, verified evidence links, unresolved blockers and next exact action. Only report a delivered SHA after the commit actually exists.
+
+2026-11-26: P00-BIS IN_PROGRESS; partial worker remediation only, certification NOT_RUN. See missions/P00-BIS. No P01 authorized.
