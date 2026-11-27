@@ -34,6 +34,7 @@ export const WORKFLOW_EXECUTION_STATUSES = [
   'submission_unknown',
   'submitted',
   'running',
+  'continuation_required',
   'completed',
   'failed',
   'cancelled',
@@ -64,15 +65,20 @@ export const catalogSyncWorkflowInputSchema = z
     delegationTicket: z.string().min(16).max(4_096),
     initiateNewSweep: z.boolean().default(false),
     maxPages: z.number().int().min(1).max(250).default(50),
+    continuationIndex: z.number().int().min(0).max(50).default(0),
+    maxContinuations: z.number().int().min(0).max(50).default(10),
   })
   .strict();
-export type CatalogSyncWorkflowInput = z.infer<typeof catalogSyncWorkflowInputSchema>;
+export type CatalogSyncWorkflowInput = z.input<typeof catalogSyncWorkflowInputSchema>;
+export type ParsedCatalogSyncWorkflowInput = z.output<typeof catalogSyncWorkflowInputSchema>;
 
 export const catalogSyncWorkflowOutputSchema = z.object({
   status: z.enum(['COMPLETED', 'CONTINUATION_REQUIRED']),
   pagesProcessed: z.number().int().nonnegative(),
   finalSyncStatus: z.string(),
   completedAt: z.string().datetime().nullable(),
+  continuationDispatched: z.boolean().default(false),
+  nextExecutionId: z.string().uuid().nullable().default(null),
 });
 export type CatalogSyncWorkflowOutput = z.infer<typeof catalogSyncWorkflowOutputSchema>;
 
@@ -336,6 +342,7 @@ export interface WorkflowExecutionRecord {
   outboxEventId: string | null;
   status: WorkflowExecutionStatus;
   payloadHash: string;
+  resultSummary?: Record<string, unknown> | null;
   attempts: number;
   lastError: string | null;
   submittedAt: string | null;

@@ -12,6 +12,7 @@ import {
   issueRunBridgeTicket,
   loadHermesAdapterConfig,
   resolveHatchetSdkConfig,
+  signConfinementChallenge,
   verifyRunBridgeTicket,
   verifySharedBridgeSecret,
 } from '../src/index.js';
@@ -125,6 +126,7 @@ describe('FL06 persistence: provider policy, bridge tickets, confined Hermes ada
 
   it('detects UNSAFE_CONFINEMENT when Hermes exposes forbidden tools or fallback providers, and streams sanitized SSE when confined', async () => {
     let leakForbiddenToolset = true;
+    let signConfinement = false;
     let stopCalledForRun: string | null = null;
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -133,10 +135,19 @@ describe('FL06 persistence: provider policy, bridge tickets, confined Hermes ada
         return;
       }
       if (req.url === '/v1/capabilities') {
-        res.writeHead(200, {
+        const nonce = String(req.headers['x-vaarg-confinement-nonce'] ?? '');
+        const headers: Record<string, string> = {
           'content-type': 'application/json',
           'x-vaarg-confinement': 'active',
-        });
+        };
+        if (signConfinement && nonce) {
+          headers['x-vaarg-confinement-signature'] = signConfinementChallenge(
+            BRIDGE_SECRET,
+            nonce,
+            '0.23.4',
+          );
+        }
+        res.writeHead(200, headers);
         res.end(
           JSON.stringify({
             version: '0.23.4',
@@ -206,6 +217,7 @@ describe('FL06 persistence: provider policy, bridge tickets, confined Hermes ada
       HERMES_ENABLED: 'true',
       HERMES_BASE_URL: `http://127.0.0.1:${port}`,
       HERMES_API_SERVER_KEY: API_KEY_SECRET,
+      HERMES_TOOL_BRIDGE_SECRET: BRIDGE_SECRET,
     });
     const adapter = new HermesAgentAdapter(cfg);
 
@@ -214,8 +226,14 @@ describe('FL06 persistence: provider policy, bridge tickets, confined Hermes ada
     expect(badCaps.status).toBe('UNSAFE_CONFINEMENT');
     expect(badCaps.forbiddenToolsDetected).toContain('terminal');
 
-    // 2. Reports AVAILABLE + delegationSupported when confined
+    // 2. Self-reported vaarg_confinement_plugin + unsigned header STILL fails closed without cryptographic attestation!
     leakForbiddenToolset = false;
+    const uncertifiedCaps = await adapter.runtimeCapabilities();
+    expect(uncertifiedCaps.status).toBe('UNSAFE_CONFINEMENT');
+    expect(uncertifiedCaps.preventiveHooksVerified).toBe(false);
+
+    // 3. Reports AVAILABLE + delegationSupported ONLY when cryptographically attested and confined
+    signConfinement = true;
     const goodCaps = await adapter.runtimeCapabilities();
     expect(goodCaps.status).toBe('AVAILABLE');
     expect(goodCaps.preventiveHooksVerified).toBe(true);

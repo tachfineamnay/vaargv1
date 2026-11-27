@@ -1,4 +1,4 @@
-import { Body, Controller, Header, Inject, Post, Req } from '@nestjs/common';
+import { Body, Controller, Header, Inject, Optional, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import {
   AppError,
@@ -7,12 +7,14 @@ import {
   getToolJsonSchemasForAdvertisedCapabilities,
   hermesBridgeLlmReconcileSchema,
   hermesBridgeLlmReserveSchema,
+  hermesBridgeRuntimeAttestSchema,
   hermesBridgeSubagentStartSchema,
   hermesBridgeSubagentStopSchema,
   hermesBridgeToolInvokeSchema,
   mcpJsonRpcRequestSchema,
 } from '@vaarg/shared';
 import {
+  ConfinementAttestationRegistry,
   ProviderPolicyRegistry,
   completeChildDelegationRun,
   reconcileModelCallUsage,
@@ -20,10 +22,12 @@ import {
   reserveModelCallBudget,
   resolveRunIdentityForHermesSession,
   verifyRunBridgeTicket,
+  verifyRuntimeAttestationPayload,
   verifySharedBridgeSecret,
 } from '@vaarg/persistence';
 import { DatabaseClient } from '../infra/database-client.js';
 import {
+  CONFINEMENT_ATTESTATION_REGISTRY,
   HERMES_BRIDGE_SECRET_TOKEN,
   PROVIDER_POLICY_REGISTRY,
 } from './intelligence.tokens.js';
@@ -41,11 +45,49 @@ export class HermesBridgeController {
     @Inject(ToolBrokerService) private readonly toolBroker: ToolBrokerService,
     @Inject(PROVIDER_POLICY_REGISTRY) private readonly providerPolicies: ProviderPolicyRegistry,
     @Inject(HERMES_BRIDGE_SECRET_TOKEN) private readonly bridgeSecret: string | undefined,
+    @Optional()
+    @Inject(CONFINEMENT_ATTESTATION_REGISTRY)
+    private readonly attestationRegistry?: ConfinementAttestationRegistry,
   ) {}
 
   private authenticateBridge(request: FastifyRequest, bridgeTicket: string) {
     verifySharedBridgeSecret(this.bridgeSecret, request.headers.authorization);
     return verifyRunBridgeTicket(this.bridgeSecret!, bridgeTicket);
+  }
+
+  @Post('hermes-bridge/guard/runtime-attest')
+  @Header('Cache-Control', 'private, no-store')
+  async attestRuntimeConfinement(@Body() body: unknown, @Req() request: FastifyRequest) {
+    verifySharedBridgeSecret(this.bridgeSecret, request.headers.authorization);
+    const parsed = hermesBridgeRuntimeAttestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw AppError.badRequest('Invalid runtime confinement attestation payload');
+    }
+
+    if (this.attestationRegistry) {
+      const lease = this.attestationRegistry.recordVerifiedAttestation(
+        this.bridgeSecret,
+        parsed.data,
+      );
+      return {
+        attested: true,
+        runtimeInstanceId: lease.runtimeInstanceId,
+        preventiveHooksVerified: true,
+      };
+    }
+
+    const check = verifyRuntimeAttestationPayload(this.bridgeSecret, parsed.data);
+    if (!check.verified) {
+      throw AppError.forbidden(
+        `INVALID_RUNTIME_ATTESTATION: ${check.reason ?? 'Confinement attestation rejected'}`,
+      );
+    }
+
+    return {
+      attested: true,
+      runtimeInstanceId: parsed.data.runtimeInstanceId,
+      preventiveHooksVerified: true,
+    };
   }
 
   @Post('hermes-bridge/guard/llm-reserve')
@@ -194,6 +236,8 @@ export class HermesBridgeController {
       childRunId: childRun.runId,
       role: childRun.role,
       depth: childRun.depth,
+      provider: childPolicy.provider,
+      model: childPolicy.model,
     };
   }
 

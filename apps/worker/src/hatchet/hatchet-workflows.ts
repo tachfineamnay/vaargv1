@@ -23,6 +23,7 @@ import {
   type ImplementedWorkflowName,
   type RetentionCleanupWorkflowInput,
   type RetentionCleanupWorkflowOutput,
+  type WorkflowOrchestrationPort,
 } from '@vaarg/shared';
 import {
   createDb,
@@ -57,6 +58,7 @@ export interface HatchetWorkflowRuntimeDeps {
     action: 'start' | 'step',
     signal: AbortSignal | undefined,
   ) => Promise<{ status: string; completedAt: Date | null }>;
+  workflowOrchestration?: WorkflowOrchestrationPort;
 }
 
 export interface WorkflowTaskExecutionContext {
@@ -158,18 +160,52 @@ export async function runCatalogSyncWorkflowHandler(
     }
   }
 
+  let continuationDispatched = false;
+  let nextExecutionId: string | null = null;
+
+  if (
+    finalSyncStatus !== 'complete' &&
+    deps.workflowOrchestration &&
+    input.continuationIndex < input.maxContinuations &&
+    claims.expiresAt > Date.now() + 30_000
+  ) {
+    const rootKey = input.idempotencyKey.replace(/:cont:\d+$/, '');
+    const nextIndex = input.continuationIndex + 1;
+    const nextIdempotencyKey = `${rootKey}:cont:${nextIndex}`.slice(0, 200);
+    const nextExec = await deps.workflowOrchestration.submitWorkflow('vaarg.catalog.sync', {
+      storeId: input.storeId,
+      country: input.country,
+      language: input.language,
+      currency: input.currency,
+      shopifyDomain: input.shopifyDomain,
+      tokenEnv: input.tokenEnv,
+      delegationTicket: input.delegationTicket,
+      idempotencyKey: nextIdempotencyKey,
+      correlationId: input.correlationId,
+      concurrencyKey: input.concurrencyKey,
+      initiateNewSweep: false,
+      maxPages: input.maxPages,
+      continuationIndex: nextIndex,
+      maxContinuations: input.maxContinuations,
+    });
+    continuationDispatched = true;
+    nextExecutionId = nextExec.executionId;
+  }
+
   const output = catalogSyncWorkflowOutputSchema.parse({
     status: finalSyncStatus === 'complete' ? 'COMPLETED' : 'CONTINUATION_REQUIRED',
     pagesProcessed,
     finalSyncStatus,
     completedAt: completedAt ? completedAt.toISOString() : null,
+    continuationDispatched,
+    nextExecutionId,
   });
 
   if (execCtx.workflowRunId) {
     await markWorkflowLifecycleStatus(deps.pool, {
       storeId: input.storeId,
       hatchetWorkflowRunId: execCtx.workflowRunId,
-      status: 'completed',
+      status: finalSyncStatus === 'complete' ? 'completed' : 'continuation_required',
       resultSummary: output as unknown as Record<string, unknown>,
     }).catch(() => null);
   }

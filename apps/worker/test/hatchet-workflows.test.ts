@@ -136,9 +136,13 @@ describe('FL06 Worker: Hatchet SDK workflow declarations, auth revalidation, bou
       pagesProcessed: 3,
       finalSyncStatus: 'complete',
       completedAt: '2026-11-27T12:05:00.000Z',
+      continuationDispatched: false,
+      nextExecutionId: null,
     });
 
-    // 3. Respects maxPages budget and returns CONTINUATION_REQUIRED when sweep still in progress
+    // 3. Respects maxPages budget, dispatches bounded continuation slice resuming from checkpoint,
+    //    and never reports page-budget exhaustion as COMPLETED
+    const dispatchedContinuations: Array<Record<string, unknown>> = [];
     const partialOut = await runCatalogSyncWorkflowHandler(
       {
         pool: fakePool,
@@ -148,6 +152,33 @@ describe('FL06 Worker: Hatchet SDK workflow declarations, auth revalidation, bou
         rateClient: undefined,
         authorizeMerchant: async () => ({ storeId, role: 'marketing' }),
         executeCatalogPage: async () => ({ status: 'products', completedAt: null }),
+        workflowOrchestration: {
+          readiness: () => ({ status: 'READY', detail: 'ok' }),
+          submitWorkflow: vi.fn(async (_name, nextInput) => {
+            dispatchedContinuations.push(nextInput as unknown as Record<string, unknown>);
+            return {
+              executionId: '00000000-0000-4000-8000-000000000099',
+              storeId,
+              workflowName: 'vaarg.catalog.sync',
+              idempotencyKey: nextInput.idempotencyKey,
+              correlationId: nextInput.correlationId,
+              concurrencyKey: nextInput.concurrencyKey,
+              hatchetWorkflowRunId: 'hatchet-cont-1',
+              outboxEventId: null,
+              status: 'submitted',
+              payloadHash: 'hash',
+              attempts: 1,
+              lastError: null,
+              submittedAt: '2026-11-27T12:06:00.000Z',
+              startedAt: null,
+              completedAt: null,
+              createdAt: '2026-11-27T12:06:00.000Z',
+              updatedAt: '2026-11-27T12:06:00.000Z',
+            };
+          }),
+          getWorkflowExecution: vi.fn(),
+          cancelWorkflowExecution: vi.fn(),
+        },
       },
       {
         storeId,
@@ -160,12 +191,61 @@ describe('FL06 Worker: Hatchet SDK workflow declarations, auth revalidation, bou
         idempotencyKey: 'sync-3',
         correlationId: 'corr-3',
         concurrencyKey: `store:${storeId}:market:FR:FR`,
-        initiateNewSweep: false,
+        initiateNewSweep: true,
         maxPages: 2,
+        continuationIndex: 0,
+        maxContinuations: 3,
       },
     );
     expect(partialOut.status).toBe('CONTINUATION_REQUIRED');
     expect(partialOut.pagesProcessed).toBe(2);
+    expect(partialOut.continuationDispatched).toBe(true);
+    expect(partialOut.nextExecutionId).toBe('00000000-0000-4000-8000-000000000099');
+    expect(dispatchedContinuations).toHaveLength(1);
+    expect(dispatchedContinuations[0]).toMatchObject({
+      idempotencyKey: 'sync-3:cont:1',
+      initiateNewSweep: false,
+      continuationIndex: 1,
+      maxContinuations: 3,
+    });
+
+    // 3b. Safely stops continuation chaining when maxContinuations cap is reached (still CONTINUATION_REQUIRED, never COMPLETED)
+    const cappedOut = await runCatalogSyncWorkflowHandler(
+      {
+        pool: fakePool,
+        env: {},
+        bindings: [binding],
+        delegationSecret: SECRET,
+        rateClient: undefined,
+        authorizeMerchant: async () => ({ storeId, role: 'marketing' }),
+        executeCatalogPage: async () => ({ status: 'products', completedAt: null }),
+        workflowOrchestration: {
+          readiness: () => ({ status: 'READY', detail: 'ok' }),
+          submitWorkflow: vi.fn(),
+          getWorkflowExecution: vi.fn(),
+          cancelWorkflowExecution: vi.fn(),
+        },
+      },
+      {
+        storeId,
+        country: 'FR',
+        language: 'FR',
+        currency: 'EUR',
+        shopifyDomain: binding.shopifyDomain,
+        tokenEnv: binding.tokenEnv,
+        delegationTicket: ticket,
+        idempotencyKey: 'sync-3:cont:3',
+        correlationId: 'corr-3',
+        concurrencyKey: `store:${storeId}:market:FR:FR`,
+        initiateNewSweep: false,
+        maxPages: 2,
+        continuationIndex: 3,
+        maxContinuations: 3,
+      },
+    );
+    expect(cappedOut.status).toBe('CONTINUATION_REQUIRED');
+    expect(cappedOut.continuationDispatched).toBe(false);
+    expect(cappedOut.nextExecutionId).toBeNull();
 
     // 4. Aborts immediately when Hatchet cancellation signal fires
     const abort = new AbortController();

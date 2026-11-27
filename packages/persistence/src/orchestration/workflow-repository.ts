@@ -34,6 +34,7 @@ function mapWorkflowExecutionRow(row: Record<string, unknown>): WorkflowExecutio
     outboxEventId: row.outbox_event_id ? String(row.outbox_event_id) : null,
     status: String(row.status) as WorkflowExecutionStatus,
     payloadHash: String(row.payload_hash),
+    resultSummary: (row.result_summary as Record<string, unknown> | null | undefined) ?? null,
     attempts: Number(row.attempts),
     lastError: row.last_error ? String(row.last_error) : null,
     submittedAt: nullableIso(row.submitted_at),
@@ -85,6 +86,7 @@ export async function claimWorkflowSubmissionRecord(
       if (
         record.status === 'submitted' ||
         record.status === 'running' ||
+        record.status === 'continuation_required' ||
         record.status === 'completed' ||
         record.status === 'cancelled'
       ) {
@@ -242,7 +244,7 @@ export async function markWorkflowLifecycleStatus(
     storeId: string;
     executionId?: string;
     hatchetWorkflowRunId?: string;
-    status: 'running' | 'completed' | 'failed' | 'cancelled';
+    status: 'running' | 'continuation_required' | 'completed' | 'failed' | 'cancelled';
     resultSummary?: Record<string, unknown>;
     errorMessage?: string;
   },
@@ -255,13 +257,18 @@ export async function markWorkflowLifecycleStatus(
     if (!lookupKey) return null;
 
     const isTerminal =
+      params.status === 'continuation_required' ||
       params.status === 'completed' ||
       params.status === 'failed' ||
       params.status === 'cancelled';
 
     const { rows } = await client.query(
       `UPDATE workflow_executions
-          SET status = $3,
+          SET status = CASE
+                WHEN status = 'continuation_required' AND $3 = 'completed' AND $5::jsonb IS NULL
+                  THEN 'continuation_required'
+                ELSE $3
+              END,
               started_at = CASE WHEN $3 = 'running' THEN COALESCE(started_at, now()) ELSE started_at END,
               completed_at = CASE WHEN $4::boolean THEN COALESCE(completed_at, now()) ELSE completed_at END,
               result_summary = COALESCE($5::jsonb, result_summary),

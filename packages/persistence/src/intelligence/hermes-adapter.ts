@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import {
   AppError,
   FORBIDDEN_RUNTIME_TOOLS,
   HERMES_PINNED_VERSION,
+  redactStreamingDelta,
   stripHiddenReasoning,
   type AgentPort,
   type AgentRunEvent,
@@ -19,11 +21,16 @@ import {
   type StartAgentRunRequest,
 } from '@vaarg/shared';
 import { z } from 'zod';
+import {
+  type ConfinementAttestationRegistry,
+  verifyConfinementChallengeSignature,
+} from './bridge-ticket.js';
 
 export interface HermesAdapterConfig {
   enabled: boolean;
   baseUrl: string | undefined;
   apiKey: string | undefined;
+  bridgeSecret?: string | undefined;
   requestTimeoutMs: number;
   sseIdleTimeoutMs: number;
   sseMaxEvents: number;
@@ -37,6 +44,7 @@ export function loadHermesAdapterConfig(
   const enabled = env.HERMES_ENABLED === 'true';
   const baseUrl = env.HERMES_API_URL?.trim() || env.HERMES_BASE_URL?.trim() || undefined;
   const apiKey = env.HERMES_API_SERVER_KEY?.trim() || undefined;
+  const bridgeSecret = env.HERMES_TOOL_BRIDGE_SECRET?.trim() || undefined;
   const requestTimeoutMs = Math.min(
     120_000,
     Math.max(1_000, Number.parseInt(env.HERMES_REQUEST_TIMEOUT_MS ?? '15000', 10) || 15_000),
@@ -49,6 +57,7 @@ export function loadHermesAdapterConfig(
     enabled,
     baseUrl,
     apiKey,
+    bridgeSecret,
     requestTimeoutMs,
     sseIdleTimeoutMs,
     sseMaxEvents: 500,
@@ -225,10 +234,16 @@ function validateVisibleAsciiKey(key: string, label: string, maxLen: number): st
 export class HermesAgentAdapter implements AgentPort {
   private readonly config: HermesAdapterConfig;
   private readonly fetchImpl: typeof fetch;
+  private readonly attestationRegistry: ConfinementAttestationRegistry | undefined;
 
-  constructor(config: HermesAdapterConfig, fetchImpl: typeof fetch = globalThis.fetch) {
+  constructor(
+    config: HermesAdapterConfig,
+    fetchImpl: typeof fetch = globalThis.fetch,
+    attestationRegistry?: ConfinementAttestationRegistry,
+  ) {
     this.config = config;
     this.fetchImpl = fetchImpl;
+    this.attestationRegistry = attestationRegistry;
   }
 
   private isConfigured(): boolean {
@@ -635,7 +650,7 @@ export class HermesAgentAdapter implements AgentPort {
           externalRunId: frame.run_id,
           seq,
           timestamp,
-          delta: typeof raw.delta === 'string' ? stripHiddenReasoning(raw.delta) : '',
+          delta: typeof raw.delta === 'string' ? redactStreamingDelta(raw.delta) : '',
         };
       case 'message.interim':
         return {
@@ -756,9 +771,11 @@ export class HermesAgentAdapter implements AgentPort {
     const { signal, cleanup } = this.buildSignal(this.config.requestTimeoutMs, callerSignal);
 
     try {
+      const challengeNonce = randomUUID();
       const authHeaders = {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
+        'X-Vaarg-Confinement-Nonce': challengeNonce,
       };
       const [capRes, toolsetsRes] = await Promise.all([
         this.fetchImpl(`${baseUrl}/v1/capabilities`, { method: 'GET', headers: authHeaders, signal }),
@@ -807,36 +824,61 @@ export class HermesAgentAdapter implements AgentPort {
         }
       }
 
-      const pluginHeaderAttested = capRes.headers.get('x-vaarg-confinement') === 'active';
-      const preventiveHooksVerified = Boolean(
-        (capJson.vaarg_confinement_plugin?.active &&
-          capJson.vaarg_confinement_plugin?.preventive_hooks) ||
-          (vaargPluginToolsetPresent && pluginHeaderAttested),
+      const reportedVersion = capJson.version ?? HERMES_PINNED_VERSION;
+      const challengeVerified = verifyConfinementChallengeSignature(
+        this.config.bridgeSecret,
+        challengeNonce,
+        reportedVersion,
+        capRes.headers.get('x-vaarg-confinement-signature'),
       );
+      const leaseVerified = Boolean(this.attestationRegistry?.hasFreshAttestation());
+      const cryptographicallyAttested = challengeVerified || leaseVerified;
+
       const implicitFallbackDetected = Boolean(
         capJson.fallback_providers && capJson.fallback_providers.length > 0,
       );
 
-      const unsafe = forbiddenToolsDetected.size > 0 || implicitFallbackDetected;
+      // FL07 T00.4: Never treat self-reported JSON capability fields or unsigned headers
+      // as real confinement certification. Fail closed if forbidden tools exist, implicit
+      // fallback is configured, the vaarg_confinement toolset is absent, or preventive
+      // confinement hooks are not cryptographically certified when required.
+      const preventiveHooksVerified = Boolean(
+        vaargPluginToolsetPresent &&
+          cryptographicallyAttested &&
+          forbiddenToolsDetected.size === 0 &&
+          !implicitFallbackDetected,
+      );
+
+      const unsafe =
+        forbiddenToolsDetected.size > 0 ||
+        implicitFallbackDetected ||
+        !vaargPluginToolsetPresent ||
+        (this.config.requirePreventivePlugin && !preventiveHooksVerified);
+
       const delegationSupported =
         !unsafe &&
         enabledToolsets.includes('delegation') &&
-        (preventiveHooksVerified || !this.config.requirePreventivePlugin);
+        preventiveHooksVerified;
 
-      const delegationLimitationReason = unsafe
-        ? `Unsafe runtime confinement detected: ${[...forbiddenToolsDetected].join(', ') || 'implicit fallback enabled'}`
-        : !preventiveHooksVerified
-          ? 'Preventive budget and child-registration hooks (vaarg-confinement plugin) are not attested on Hermes; unrestricted delegation is disabled.'
-          : !enabledToolsets.includes('delegation')
-            ? 'Hermes delegation toolset is not enabled on runtime.'
-            : null;
+      const delegationLimitationReason =
+        forbiddenToolsDetected.size > 0
+          ? `Unsafe runtime confinement detected: forbidden tools enabled (${[...forbiddenToolsDetected].join(', ')})`
+          : implicitFallbackDetected
+            ? 'Unsafe runtime confinement detected: implicit fallback providers enabled'
+            : !vaargPluginToolsetPresent
+              ? 'Unsafe runtime confinement detected: vaarg_confinement plugin toolset is not active'
+              : !preventiveHooksVerified
+                ? 'Unverified runtime confinement: cryptographic preventive-hook attestation is missing (self-reported capability fields are not trusted).'
+                : !enabledToolsets.includes('delegation')
+                  ? 'Hermes delegation toolset is not enabled on runtime.'
+                  : null;
 
       return {
         status: unsafe ? 'UNSAFE_CONFINEMENT' : 'AVAILABLE',
         runtimeName: 'hermes',
         pinnedVersion: HERMES_PINNED_VERSION,
         reportedVersion: capJson.version ?? null,
-        runSubmission: capJson.features?.run_submission ?? true,
+        runSubmission: !unsafe && (capJson.features?.run_submission ?? true),
         runStatus: capJson.features?.run_status ?? true,
         runEventsSse: capJson.features?.run_events_sse ?? true,
         runStop: capJson.features?.run_stop ?? true,

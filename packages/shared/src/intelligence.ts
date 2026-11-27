@@ -247,6 +247,7 @@ export const ACTION_PROPOSAL_STATUSES = [
   'pending_confirmation',
   'confirmed',
   'applied',
+  'stale',
   'rejected',
   'superseded',
   'cancelled',
@@ -448,12 +449,29 @@ export const startConversationRunInputSchema = z
     message: z.string().trim().min(1).max(4_000).optional(),
     triggerMessageId: z.string().uuid().optional(),
     idempotencyKey: z.string().trim().min(1).max(200).optional(),
-    provider: directModelProviderSchema.optional(),
-    model: z.string().trim().min(1).max(120).optional(),
-    publishCompositionProposal: z.boolean().default(false),
   })
   .strict();
 export type StartConversationRunInput = z.infer<typeof startConversationRunInputSchema>;
+
+export const publishRunCompositionInputSchema = z
+  .object({
+    proposalId: z.string().uuid().optional(),
+    expectedContextVersion: z.number().int().nonnegative().optional(),
+    idempotencyKey: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+export type PublishRunCompositionInput = z.infer<typeof publishRunCompositionInputSchema>;
+
+export const publishRunCompositionResultSchema = z.object({
+  published: z.boolean(),
+  replayed: z.boolean(),
+  runId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  contextVersion: z.number().int().nonnegative(),
+  experienceRevision: z.number().int().nonnegative(),
+  composition: adaptiveCompositionSchema,
+});
+export type PublishRunCompositionResult = z.infer<typeof publishRunCompositionResultSchema>;
 
 export const validatedAgentRunResultSchema = z.object({
   runId: z.string().uuid(),
@@ -694,6 +712,22 @@ const UNCLOSED_THINK_PATTERN = /<think>[\s\S]*$/gi;
 
 export function stripHiddenReasoning(raw: string): string {
   return raw.replace(THINK_BLOCK_PATTERN, '').replace(UNCLOSED_THINK_PATTERN, '').trim();
+}
+
+/**
+ * Strips `<think>...</think>` blocks from streamed token deltas WITHOUT trimming
+ * natural inter-word whitespace.
+ */
+export function stripHiddenReasoningDelta(raw: string): string {
+  return raw.replace(THINK_BLOCK_PATTERN, '').replace(UNCLOSED_THINK_PATTERN, '');
+}
+
+export function redactStreamingDelta(raw: string, maxLength = 4_000): string {
+  const withoutReasoning = stripHiddenReasoningDelta(raw);
+  const redacted = withoutReasoning
+    .replace(BEARER_PATTERN, 'Bearer [REDACTED]')
+    .replace(EMAIL_PATTERN, '[REDACTED_EMAIL]');
+  return redacted.length > maxLength ? redacted.slice(0, maxLength) : redacted;
 }
 
 export function redactSensitiveText(raw: string, maxLength = 4_000): string {

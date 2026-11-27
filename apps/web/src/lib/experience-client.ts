@@ -4,6 +4,7 @@ import {
   interactionIngestResultSchema,
   isStaleResponse,
   searchResultSchema,
+  type A2UiAgentToRendererMessage,
   type AdaptiveComposition,
   type ExperienceContext,
   type InteractionEvent,
@@ -64,6 +65,20 @@ export function setLastAppliedRevision(envelope: RevisionEnvelope | null): void 
 
 export function lastAppliedRevision(): RevisionEnvelope | null {
   return lastApplied;
+}
+
+/**
+ * Publishes an authoritative server revision envelope (e.g. from AG-UI STATE_SNAPSHOT,
+ * STATE_DELTA, run composition publication, or controlled A2UI UI actions) into the
+ * tab-scoped experience observable while enforcing monotonic EXP-03 ordering.
+ */
+export function notifyServerExperienceSync(envelope: RevisionEnvelope): boolean {
+  if (!envelope.sessionId) return false;
+  if (snapshot.sessionId && snapshot.sessionId !== envelope.sessionId) return false;
+  if (isStaleResponse(lastApplied, envelope)) return false;
+  lastApplied = envelope;
+  acceptedInteraction();
+  return true;
 }
 
 async function request<T>(
@@ -221,6 +236,48 @@ export function refreshExperienceComposition(input: {
         sessionId: composition.sessionId,
         contextVersion: composition.contextVersion,
         experienceRevision: composition.experienceRevision,
+      }),
+    },
+  );
+}
+
+export interface ExperienceA2UiBundle {
+  surfaceId: string;
+  catalogId: string;
+  composition: AdaptiveComposition;
+  messages: A2UiAgentToRendererMessage[];
+}
+
+export function fetchExperienceA2Ui(
+  compare?: string[],
+  signal?: AbortSignal,
+): Promise<ExperienceResult<ExperienceA2UiBundle>> {
+  const query =
+    compare && compare.length >= 2 ? `?compare=${encodeURIComponent(compare.join(','))}` : '';
+  return request(
+    `/api/experience/a2ui${query}`,
+    { headers: { accept: 'application/json' }, ...(signal ? { signal } : {}) },
+    (raw) => {
+      if (!raw || typeof raw !== 'object') {
+        throw new Error('Invalid A2UI bundle');
+      }
+      const obj = raw as Record<string, unknown>;
+      const composition = adaptiveCompositionSchema.parse(obj.composition);
+      const messages = Array.isArray(obj.messages)
+        ? (obj.messages as A2UiAgentToRendererMessage[])
+        : [];
+      return {
+        surfaceId: String(obj.surfaceId ?? ''),
+        catalogId: String(obj.catalogId ?? ''),
+        composition,
+        messages,
+      };
+    },
+    {
+      staleCheck: (bundle) => ({
+        sessionId: bundle.composition.sessionId,
+        contextVersion: bundle.composition.contextVersion,
+        experienceRevision: bundle.composition.experienceRevision,
       }),
     },
   );

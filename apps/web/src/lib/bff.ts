@@ -1,15 +1,15 @@
 import { StorefrontError, type StorefrontErrorKind } from './errors';
 import { parseStorefrontHost, storefrontOrigin } from './host';
-import { forwardRequest } from './transport';
+import { forwardRequest, forwardSseRequest } from './transport';
 
 /**
- * Constrained same-origin BFF (FL04): fixed paths only, strict body
+ * Constrained same-origin BFF (FL04/FL07): fixed paths only, strict body
  * validation, same-origin enforcement on mutations, session-cookie-only
- * forwarding, constructed `Origin` for the API's CSRF boundary, and a 4s
- * upstream timeout. Never proxies arbitrary paths or query strings.
+ * forwarding, constructed `Origin` for the API's CSRF boundary, and bounded
+ * upstream timeouts. Never proxies arbitrary paths or query strings.
  */
 export const VISITOR_SESSION_COOKIE = 'vaarg_visitor_session';
-const MAX_BODY_BYTES = 4096;
+const MAX_BODY_BYTES = 16384;
 
 export function newBffRequestId(): string {
   return `bff-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -77,7 +77,21 @@ export interface BffForwardOptions {
   host: string;
   body?: unknown;
   cookie: string | null;
+  idempotencyKey?: string | null;
+  timeoutMs?: number;
   requestId: string;
+}
+
+export function readIdempotencyKey(request: Request): string | null {
+  const raw = request.headers.get('idempotency-key')?.trim();
+  if (!raw || raw.length > 200 || !/^[A-Za-z0-9:._-]+$/.test(raw)) return null;
+  return raw;
+}
+
+export function readLastEventId(request: Request): string | null {
+  const raw = request.headers.get('last-event-id')?.trim();
+  if (!raw || raw.length > 200 || !/^[A-Za-z0-9:_-]+$/.test(raw)) return null;
+  return raw;
 }
 
 /** Forward to the API with Host + constructed Origin; relay set-cookie back. */
@@ -90,6 +104,8 @@ export async function forwardToApi(options: BffForwardOptions): Promise<Response
       ...(options.body === undefined ? {} : { body: options.body }),
       cookie: options.cookie,
       origin: storefrontOrigin(options.host),
+      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       requestId: options.requestId,
     });
     const headers = new Headers({ 'cache-control': 'private, no-store' });
@@ -110,6 +126,59 @@ export async function forwardToApi(options: BffForwardOptions): Promise<Response
       return bffJsonError(503, 'unavailable', error.message, options.requestId);
     }
     return bffJsonError(503, 'unavailable', 'Storefront API unreachable', options.requestId);
+  }
+}
+
+export interface BffSseForwardOptions {
+  apiPath: string;
+  host: string;
+  cookie: string | null;
+  lastEventId?: string | null;
+  signal?: AbortSignal;
+  requestId: string;
+}
+
+/** Forward an unbuffered AG-UI SSE stream from the API to the browser. */
+export async function forwardSseToApi(options: BffSseForwardOptions): Promise<Response> {
+  try {
+    const response = await forwardSseRequest({
+      path: options.apiPath,
+      host: options.host,
+      cookie: options.cookie,
+      ...(options.lastEventId ? { lastEventId: options.lastEventId } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      requestId: options.requestId,
+    });
+
+    if (response.status !== 200 || typeof response.body === 'string') {
+      const headers = new Headers({ 'cache-control': 'private, no-store' });
+      const contentType = response.headers['content-type'];
+      if (typeof contentType === 'string') headers.set('content-type', contentType);
+      const bodyStr = typeof response.body === 'string' ? response.body : '';
+      return new Response(bodyStr.length > 0 ? bodyStr : null, {
+        status: response.status || 503,
+        headers,
+      });
+    }
+
+    const headers = new Headers({
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'private, no-store, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    return new Response(response.body, {
+      status: 200,
+      headers,
+    });
+  } catch (error) {
+    if (error instanceof StorefrontError && error.kind === 'timeout') {
+      return bffJsonError(503, 'unavailable', 'Storefront SSE timeout', options.requestId);
+    }
+    if (error instanceof StorefrontError && error.kind === 'internal') {
+      return bffJsonError(503, 'unavailable', error.message, options.requestId);
+    }
+    return bffJsonError(503, 'unavailable', 'Storefront SSE unreachable', options.requestId);
   }
 }
 

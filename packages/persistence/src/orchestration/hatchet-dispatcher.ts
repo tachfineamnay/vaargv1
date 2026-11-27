@@ -248,17 +248,26 @@ export class HatchetWorkflowDispatcher implements WorkflowOrchestrationPort {
       try {
         const rawStatus = await this.driver.getRunStatus(existing.hatchetWorkflowRunId);
         const mapped = mapHatchetStatusToExecutionStatus(rawStatus);
+        const summaryStatus =
+          existing.resultSummary && typeof existing.resultSummary.status === 'string'
+            ? existing.resultSummary.status
+            : null;
+        const effectiveMapped =
+          mapped === 'completed' && summaryStatus === 'CONTINUATION_REQUIRED'
+            ? 'continuation_required'
+            : mapped;
         if (
-          mapped !== existing.status &&
-          (mapped === 'running' ||
-            mapped === 'completed' ||
-            mapped === 'failed' ||
-            mapped === 'cancelled')
+          effectiveMapped !== existing.status &&
+          (effectiveMapped === 'running' ||
+            effectiveMapped === 'continuation_required' ||
+            effectiveMapped === 'completed' ||
+            effectiveMapped === 'failed' ||
+            effectiveMapped === 'cancelled')
         ) {
           const updated = await markWorkflowLifecycleStatus(this.pool, {
             storeId,
             executionId,
-            status: mapped,
+            status: effectiveMapped,
           });
           if (updated) return updated;
         }
