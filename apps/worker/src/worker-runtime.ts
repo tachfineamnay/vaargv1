@@ -6,11 +6,13 @@ import { loadWorkerConfiguration } from './infra/worker-config.js';
 import { JobRunner } from './jobs/job-runner.js';
 import { createCatalogJob } from './jobs/catalog-job.js';
 import { createEmbeddingJob } from './jobs/embedding-job.js';
+import { createHatchetWorkerHost, type HatchetWorkerHost } from './hatchet/hatchet-worker-host.js';
 
 export interface WorkerRuntime {
   logger: pino.Logger;
   dependencies: WorkerDependencies;
   runner: JobRunner;
+  hatchet: HatchetWorkerHost;
   report(): Promise<DependencyReport>;
   shutdown(): Promise<void>;
 }
@@ -47,14 +49,26 @@ export async function createWorkerRuntime(
   // provider key the job reports NOT_CONFIGURED and performs no paid work.
   jobs.push(createEmbeddingJob(dependencies.database.getPool(), env));
   const runner = new JobRunner(jobs, logger);
+  const hatchet = createHatchetWorkerHost(
+    {
+      pool: dependencies.database.getPool(),
+      env,
+      bindings,
+      delegationSecret,
+      rateClient,
+    },
+    logger,
+  );
 
   return {
     logger,
     dependencies,
     runner,
+    hatchet,
     report: () => dependencies.check(),
     shutdown: async () => {
       logger.info('Worker shutting down');
+      await hatchet.stop();
       rateClient?.disconnect();
       await dependencies.close();
     },

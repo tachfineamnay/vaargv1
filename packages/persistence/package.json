@@ -30,6 +30,7 @@
     "catalog:step": "node dist/commerce/cli.js"
   },
   "dependencies": {
+    "@hatchet-dev/typescript-sdk": "1.49.1",
     "@node-rs/argon2": "2.2.2",
     "@vaarg/shared": "workspace:*",
     "drizzle-orm": "0.45.4",

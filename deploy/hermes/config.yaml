@@ -1,0 +1,74 @@
+# VAARG V1 — Confined Hermes Runtime Configuration (NousResearch/hermes-agent v0.23.4)
+# Server-side private runtime only. Never exposed to browsers.
+# PostgreSQL remains VAARG's sole durable business authority.
+
+# Zero implicit provider fallback: only explicit per-run direct Gemini API or DeepSeek API allowed
+fallback_providers: []
+
+# Disable Hermes autonomous cross-session memory & background reviews
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  nudge_interval: 0
+  flush_min_turns: 0
+
+auxiliary:
+  background_review:
+    enabled: false
+
+# Bounded Master -> Specialist delegation (depth <= 1, max 3 concurrent children, no grandchildren)
+delegation:
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  orchestrator_enabled: false
+  auto_resume: false
+  gateway_mode: inline
+  max_iterations: 12
+  inherit_mcp_toolsets: false
+  fallback_providers: []
+
+# Strictly confine API Server toolsets to bounded delegation + VAARG ToolBroker plugin
+platform_toolsets:
+  api_server:
+    - delegation
+    - vaarg_confinement
+
+# Explicitly disable all host, shell, filesystem, code execution, browser, web, memory & admin toolsets
+disabled_toolsets:
+  - terminal
+  - file
+  - code_execution
+  - web
+  - search
+  - browser
+  - memory
+  - session_search
+  - skills
+  - cronjob
+  - connections
+  - computer_use
+  - kanban
+  - tts
+  - image_gen
+  - video
+  - video_gen
+  - vision
+  - clarify
+  - moa
+
+gateway:
+  api_server:
+    enabled: true
+    host: 0.0.0.0
+    port: 8642
+  platforms:
+    api_server:
+      extra:
+        direct_model_requests: true
+
+plugins:
+  enabled: true
+  entries:
+    vaarg-confinement:
+      enabled: true
+      allow_tool_override: false

@@ -41,6 +41,36 @@ services:
     networks:
       - vaarg-internal
 
+  # Optional confined Hermes runtime (NousResearch/hermes-agent v0.23.4).
+  # Activate explicitly with: docker compose -f docker-compose.dev.yml --profile hermes up
+  # Never publishes ports to browsers unless bound to 127.0.0.1 for local server integration tests.
+  hermes:
+    profiles: ['hermes']
+    build:
+      context: .
+      dockerfile: deploy/hermes/Dockerfile
+    restart: unless-stopped
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    environment:
+      API_SERVER_ENABLED: 'true'
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: '8642'
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      VAARG_INTERNAL_API_URL: ${VAARG_INTERNAL_API_URL:-http://host.docker.internal:4111}
+      HERMES_TOOL_BRIDGE_SECRET: ${HERMES_TOOL_BRIDGE_SECRET:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    expose:
+      - '8642'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8642/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vaarg-internal
+
 networks:
   vaarg-internal:
     driver: bridge

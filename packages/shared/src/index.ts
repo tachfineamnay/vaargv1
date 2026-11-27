@@ -12,3 +12,7 @@ export * from './recommendation.js';
 export * from './composition.js';
 export * from './embedding.js';
 export * from './capabilities.js';
+export * from './intelligence.js';
+export * from './specialists.js';
+export * from './tool-broker.js';
+export * from './workflows.js';

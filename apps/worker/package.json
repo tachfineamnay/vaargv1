@@ -17,6 +17,7 @@
     "clean": "rm -rf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@hatchet-dev/typescript-sdk": "1.49.1",
     "@vaarg/persistence": "workspace:*",
     "@vaarg/shared": "workspace:*",
     "ioredis": "6.1.0",

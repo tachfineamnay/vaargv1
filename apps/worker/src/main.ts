@@ -29,7 +29,16 @@ async function bootstrap(): Promise<void> {
     server.once('error', reject);
     server.listen(port, configuration.app.host, resolve);
   });
-  runtime.logger.info({ revision: process.env.APP_VERSION ?? 'unknown', jobs: runtime.runner.registeredJobs }, 'Worker started');
+  await runtime.hatchet.start();
+  runtime.logger.info(
+    {
+      revision: process.env.APP_VERSION ?? 'unknown',
+      jobs: runtime.runner.registeredJobs,
+      hatchetStatus: runtime.hatchet.status,
+      hatchetWorkflows: runtime.hatchet.registeredWorkflows,
+    },
+    'Worker started',
+  );
   const interval = setInterval(() => {
     void runtime.report().then((report) => {
       if (!report.allReady) runtime.logger.warn({ report }, 'Worker running with unready dependencies');

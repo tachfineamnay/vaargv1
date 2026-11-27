@@ -5,3 +5,4 @@ export * from './operations.js';
 export * from './integration.js';
 export * from './experience.js';
 export * from './catalog.js';
+export * from './intelligence.js';
