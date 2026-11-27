@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
 import type { ReactElement, ReactNode } from 'react';
 import './globals.css';
-import { SiteHeader } from '../components/SiteHeader';
+import { CompareProvider } from '../components/CompareProvider';
+import { CompareTray } from '../components/CompareTray';
+import { SessionProvider } from '../components/SessionProvider';
+import { StorefrontFooter } from '../components/StorefrontFooter';
+import { StorefrontHeader } from '../components/StorefrontHeader';
 import { SITE_CONFIG } from '../lib/site';
 
 export const metadata: Metadata = {
@@ -17,14 +21,14 @@ export default function RootLayout({ children }: { children: ReactNode }): React
         <a href="#main" className="skip-link">
           Skip to content
         </a>
-        <SiteHeader />
-        <main id="main">{children}</main>
-        <footer className="site-footer">
-          <p>
-            {SITE_CONFIG.name} — Shopify owns transactions; VAARG owns the experience and
-            consented memory.
-          </p>
-        </footer>
+        <SessionProvider>
+          <CompareProvider>
+            <StorefrontHeader />
+            <main id="main">{children}</main>
+            <CompareTray />
+            <StorefrontFooter />
+          </CompareProvider>
+        </SessionProvider>
       </body>
     </html>
   );

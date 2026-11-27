@@ -248,9 +248,14 @@ export class CatalogService {
 
   /** Available filters (verified facets only). */
   async listFiltersV1(host: unknown, correlationId: string, rawQuery: unknown) {
-    const query = catalogV1CollectionsQuerySchema.pick({ q: true }).optional().safeParse(rawQuery ?? {});
-    const collection = typeof rawQuery === 'object' && rawQuery !== null && 'collection' in rawQuery ? (rawQuery as { collection?: unknown }).collection : undefined;
+    // FL04 defect fix: `collection` is extracted before validating the rest —
+    // the strict picked schema rejects unknown keys, so `?collection=…` used
+    // to 400 before the separately-extracted collection was ever used.
+    const record: Record<string, unknown> = typeof rawQuery === 'object' && rawQuery !== null && !Array.isArray(rawQuery) ? { ...(rawQuery as Record<string, unknown>) } : {};
+    const collection = record.collection;
+    delete record.collection;
     if (collection !== undefined && (typeof collection !== 'string' || !/^[a-z0-9][a-z0-9-]{0,254}$/.test(collection) && !/^gid:\/\/shopify\/Collection\/\d{1,25}$/.test(collection))) throw new BadRequestException('Invalid collection filter');
+    const query = catalogV1CollectionsQuerySchema.pick({ q: true }).safeParse(record);
     if (!query.success) throw new BadRequestException('Invalid catalog query');
     const { tenant, configured } = await this.v1Context(host, correlationId);
     this.requireConfigured(configured);

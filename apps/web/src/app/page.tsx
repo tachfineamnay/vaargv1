@@ -1,29 +1,34 @@
-import type { ReactElement } from 'react';
-import { ApiStatusPanel } from '../components/ApiStatusPanel';
-import { probeApiStatus } from '../lib/api-client';
-import { SITE_CONFIG } from '../lib/site';
+import { Fragment, type ReactElement } from 'react';
+import { AdaptiveSectionBoundary } from '../components/AdaptiveSectionBoundary';
+import { SectionRenderer } from '../components/SectionRenderer';
+import { createCatalogClient } from '../lib/catalog';
+import { buildHomeSections } from '../lib/composition';
+import { toStorefrontError } from '../lib/errors';
+import { storefrontHost } from '../lib/storefront';
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage(): Promise<ReactElement> {
-  const status = await probeApiStatus();
-
+  let host: string;
+  try {
+    host = await storefrontHost();
+  } catch (error) {
+    return <SectionRenderer section={{ id: 'host', type: 'state-error', error: toStorefrontError(error) }} />;
+  }
+  const client = createCatalogClient(host);
+  const results = await Promise.allSettled([
+    client.listCollections({ limit: '6' }),
+    client.listProducts({ limit: '8', sort: 'updated-desc' }),
+  ]);
+  const sections = buildHomeSections({ collections: results[0], products: results[1] });
   return (
     <>
-      <section className="hero" data-testid="hero">
-        <p className="eyebrow">Industrial adaptive commerce</p>
-        <h1>{SITE_CONFIG.name}</h1>
-        <p>{SITE_CONFIG.tagline}</p>
-      </section>
-      <ApiStatusPanel status={status} />
-      <section aria-label="Platform" className="platform" data-testid="platform">
-        <h2>A storefront that adapts</h2>
-        <p>
-          Shopify remains the transaction authority. VAARG orchestrates the experience, the
-          consented customer memory and the agent intelligence around it — without inventing
-          products, prices or availability.
-        </p>
-      </section>
+      {sections.map((section) => (
+        <Fragment key={section.id}>
+          <SectionRenderer section={section} />
+          {section.id === 'recent' ? <AdaptiveSectionBoundary /> : null}
+        </Fragment>
+      ))}
     </>
   );
 }
