@@ -44,6 +44,11 @@ export function useSession(): SessionContextValue {
   return value;
 }
 
+/** Null-tolerant accessor for optional integrations (e.g. adaptive boundary). */
+export function useOptionalSession(): SessionContextValue | null {
+  return useContext(SessionContext);
+}
+
 export function SessionProvider({ children }: { children: ReactNode }): ReactElement {
   const [state, setState] = useState<SessionState>({ view: 'loading', session: null, tenant: null, error: null });
   const startedRef = useRef(false);

@@ -5,6 +5,7 @@ import { WorkerDependencies, type DependencyReport } from './infra/dependencies.
 import { loadWorkerConfiguration } from './infra/worker-config.js';
 import { JobRunner } from './jobs/job-runner.js';
 import { createCatalogJob } from './jobs/catalog-job.js';
+import { createEmbeddingJob } from './jobs/embedding-job.js';
 
 export interface WorkerRuntime {
   logger: pino.Logger;
@@ -42,6 +43,9 @@ export async function createWorkerRuntime(
     async (binding, merchantUserId, sessionId) => { const identity = await withStoreContext(createDb(dependencies.database.getPool()), binding.storeId, tx => resolveMerchantSessionId(tx, binding.storeId, sessionId)); return identity?.merchantUserId === merchantUserId ? identity : null; },
     (binding, action, signal, jobId) => executeCatalogStep(dependencies.database.getPool(), rateClient, binding, env, action, signal, jobId),
   )] : [];
+  // Embeddings maintenance is registered unconditionally (FL05): without a
+  // provider key the job reports NOT_CONFIGURED and performs no paid work.
+  jobs.push(createEmbeddingJob(dependencies.database.getPool(), env));
   const runner = new JobRunner(jobs, logger);
 
   return {

@@ -10,6 +10,7 @@ import { IdentityModule } from './identity/identity.module.js';
 import { SessionsModule } from './sessions/sessions.module.js';
 import { PrivacyModule } from './privacy/privacy.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
+import { ExperienceModule } from './experience/experience.module.js';
 
 /**
  * Application composition root. Functional boundaries live in explicit
@@ -26,6 +27,7 @@ import { CatalogModule } from './catalog/catalog.module.js';
     SessionsModule,
     PrivacyModule,
     CatalogModule,
+    ExperienceModule,
   ],
   controllers: [HealthController, VersionController],
   providers: [

@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import type { CatalogV1Filters } from '@vaarg/shared';
 import type { ListParams } from '../lib/params';
 import { t } from '../lib/i18n';
+import { FilterReporter } from './ExperienceReporter';
 import { SortControl } from './SortControl';
 
 /**
@@ -24,6 +25,7 @@ export function FilterPanel({
   const attributeGroups = filters ? [...filters.options, ...filters.attributes] : [];
   return (
     <form className="filter-panel" method="get" action={action} data-testid="filter-panel">
+      <FilterReporter />
       <SortControl value={ui.sort} />
 
       <div className="filter-panel__field">

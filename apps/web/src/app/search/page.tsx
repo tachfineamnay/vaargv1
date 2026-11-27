@@ -3,6 +3,7 @@ import type { CatalogV1SearchResponse } from '@vaarg/shared';
 import { CatalogStatus } from '../../components/CatalogStatus';
 import { EmptyState, emptyKindForStatus } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { SearchViewReporter } from '../../components/ExperienceReporter';
 import { PaginationControl } from '../../components/PaginationControl';
 import { ProductGrid } from '../../components/ProductCard';
 import { SearchInput } from '../../components/SearchInput';
@@ -76,6 +77,7 @@ export default async function SearchPage({
   return (
     <>
       {head}
+      <SearchViewReporter query={data.query} />
       <section className="page-head">
         <h2>{t('search.resultsFor', { q: data.query })}</h2>
       </section>

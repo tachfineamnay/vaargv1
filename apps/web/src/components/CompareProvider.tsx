@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { CompareReporter } from './ExperienceReporter';
 
 /** Comparison holds at most four products (matches the API bound). */
 export const MAX_COMPARE = 4;
@@ -49,5 +50,10 @@ export function CompareProvider({
     }),
     [ids],
   );
-  return <CompareContext.Provider value={value}>{children}</CompareContext.Provider>;
+  return (
+    <CompareContext.Provider value={value}>
+      <CompareReporter />
+      {children}
+    </CompareContext.Provider>
+  );
 }
