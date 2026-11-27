@@ -11,6 +11,6 @@ Implemented (not external-runtime certified):
 - [x] FIX08 purpose isolation, minimized essential receipts, immediate atomic withdrawal + cache invalidation, runnable retention CLI.
 - [x] FIX09 locked authoritative publication checks, 409 conflicts, active identity, Lua cache CAS, PostgreSQL-authoritative context reads.
 - [x] Affected typechecks + focused tests; original tests preserved.
-- [ ] Commit/push Arena branch; one PR to main; do not merge.
+- [x] Code committed/pushed on Arena branch; PR #9 targets main; not merged.
 
 External PostgreSQL/pgvector/Valkey/provider runtime gates: NOT_RUN.

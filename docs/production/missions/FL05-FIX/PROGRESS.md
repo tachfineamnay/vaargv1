@@ -35,3 +35,10 @@ version-zero proposals too. Real migrations/Valkey/provider/browser gates remain
 NOT_RUN, not certified. No existing tests removed or weakened.
 Next exact action: commit changes on arena/c104163d-vaargv1, push that branch,
 create one PR to main, then record PR checkpoint. Never merge.
+
+Delivery: code commit caf8c4aa4d6c12cbab9299c608bc141f182abc36 pushed to
+arena/c104163d-vaargv1. PR: https://github.com/tachfineamnay/vaargv1/pull/9
+(open, targets main, not merged). Final checkpoint-only commit follows; no
+application changes after the recorded passing checks.
+Next exact action: operator applies 0013 and runs the dedicated real runtime
+gates/reindex when authorized; no FL06 or merge performed in this mission.

@@ -24,3 +24,8 @@ Operator follow-up: apply forward 0013, authorize incremental embedding reindex
 (legacy provider identity is deliberately unverified), run real gates. Retention:
 `corepack pnpm --filter @vaarg/persistence experience:purge` with restricted
 DATABASE_URL + operator STOREFRONT_BINDINGS_JSON; no provider calls.
+
+Verified application code commit: caf8c4aa4d6c12cbab9299c608bc141f182abc36
+(the checked working-tree application code is unchanged in this commit).
+PR #9: https://github.com/tachfineamnay/vaargv1/pull/9. Final follow-up is
+checkpoint-only; runtime gates remain NOT_RUN.
