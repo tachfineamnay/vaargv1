@@ -87,26 +87,34 @@ function tsConfigFor(language: string): string {
 }
 
 /**
- * Hard-filter SQL over the `p` (catalog_products) alias. Every present
- * constraint becomes a WHERE predicate. Parameterized exclusively.
+ * Centralized hard-filter SQL over the `p` (catalog_products) alias. Every
+ * present constraint becomes a WHERE predicate. Parameterized exclusively.
+ * Shared by every retrieval channel and by the recommendation strategies
+ * (FIX04) so availability, currency, budget, collection, vendor, product
+ * type and attributes are enforced identically everywhere.
  */
-function constraintsSql(constraints: SearchConstraints, params: unknown[]): string {
+export function catalogHardFilterSql(constraints: SearchConstraints, params: unknown[]): string {
   const clauses: string[] = [];
+  const variant: string[] = ['pv.store_id=p.store_id', 'pv.country=p.country', 'pv.language=p.language', 'pv.product_gid=p.product_gid', 'pv.visible=true'];
   if (constraints.available !== undefined) {
     params.push(constraints.available);
     clauses.push(`p.available_for_sale = $${params.length}`);
+    variant.push(`pv.available_for_sale = $${params.length}`);
   }
-  if (constraints.priceMin !== undefined || constraints.priceMax !== undefined) {
-    // Currency is required by the shared schema refinement.
-    params.push(constraints.currency ?? '');
-    const currency = `$${params.length}`;
-    params.push(constraints.priceMin ?? '0');
-    const min = `$${params.length}`;
-    params.push(constraints.priceMax ?? '999999999999999');
-    const max = `$${params.length}`;
-    clauses.push(
-      `EXISTS (SELECT 1 FROM catalog_variants pv WHERE pv.store_id=p.store_id AND pv.country=p.country AND pv.language=p.language AND pv.product_gid=p.product_gid AND pv.visible=true AND pv.currency=${currency} AND pv.price_amount BETWEEN ${min}::numeric AND ${max}::numeric)`,
-    );
+  if (constraints.currency !== undefined) {
+    params.push(constraints.currency);
+    variant.push(`pv.currency=$${params.length}`);
+  }
+  if (constraints.priceMin !== undefined) {
+    params.push(constraints.priceMin);
+    variant.push(`pv.price_amount >= $${params.length}::numeric`);
+  }
+  if (constraints.priceMax !== undefined) {
+    params.push(constraints.priceMax);
+    variant.push(`pv.price_amount <= $${params.length}::numeric`);
+  }
+  if (constraints.available !== undefined || constraints.currency !== undefined || constraints.priceMin !== undefined || constraints.priceMax !== undefined) {
+    clauses.push(`EXISTS (SELECT 1 FROM catalog_variants pv WHERE ${variant.join(' AND ')})`);
   }
   if (constraints.collection !== undefined) {
     params.push(constraints.collection);
@@ -143,7 +151,7 @@ function likePattern(value: string): string {
 async function readFreshness(
   client: PoolClient,
   scope: ParsedSearchRequest['scope'],
-): Promise<{ status: SearchResult['status']; completedAt: string | null }> {
+): Promise<{ status: NonNullable<SearchResult['catalogStatus']>; completedAt: string | null }> {
   const row = (
     await client.query<FreshnessRow>(
       'SELECT phase, completed_at FROM catalog_imports WHERE store_id=$1 AND country=$2 AND language=$3',
@@ -205,6 +213,9 @@ class PostgresSearchPort implements SearchPort {
     signal?: AbortSignal,
   ): Promise<SearchResult> {
     const request = searchRequestSchema.parse(rawRequest);
+    // FIX05: the invoked method and request.mode must agree — a caller can
+    // never get hybrid channels from lexicalSearch (or vice versa).
+    if (request.mode !== mode) throw new Error('SEARCH_MODE_MISMATCH');
     const scope = request.scope;
     const generatedAt = new Date().toISOString();
 
@@ -226,6 +237,9 @@ class PostgresSearchPort implements SearchPort {
     if (wantsVector) {
       if (this.embedding && this.embedding.availability() === 'READY' && normalizedQuery) {
         try {
+          const identity = this.embedding.identity();
+          if (!identity || identity.dimension !== EMBEDDING_DIMENSION) throw new Error('EMBEDDING_IDENTITY_MISMATCH');
+          if (this.embeddingIdentity && (this.embeddingIdentity.provider !== identity.provider || this.embeddingIdentity.model !== identity.model || this.embeddingIdentity.modelVersion !== identity.modelVersion || this.embeddingIdentity.dimension !== identity.dimension)) throw new Error('EMBEDDING_IDENTITY_MISMATCH');
           queryVector = await this.embedding.embedQuery(
             normalizedQuery,
             signal ? { signal } : {},
@@ -286,7 +300,7 @@ class PostgresSearchPort implements SearchPort {
       channels,
       rrfK: this.rrfK,
       candidatePool: this.candidatePool,
-      embedding: queryVector ? (this.embeddingIdentity ?? this.embedding?.identity() ?? null) : null,
+      embedding: queryVector ? (this.embedding?.identity() ?? null) : null,
     };
 
     // Honest status: catalog freshness wins; a hybrid/contextual request
@@ -303,6 +317,7 @@ class PostgresSearchPort implements SearchPort {
 
     return {
       status,
+      catalogStatus: freshness.status,
       mode: request.mode,
       query: request.q ?? null,
       items,
@@ -312,24 +327,26 @@ class PostgresSearchPort implements SearchPort {
     };
   }
 
-  private notConfigured(
+  private async notConfigured(
     mode: SearchResult['mode'],
     request: ParsedSearchRequest,
     generatedAt: string,
     _signal?: AbortSignal,
-  ): SearchResult {
+  ): Promise<SearchResult> {
+    const freshness = await scopedCatalogTransaction(this.pool, request.scope, client => readFreshness(client, request.scope));
     return {
       status: 'NOT_CONFIGURED',
+      catalogStatus: freshness.status,
       mode,
       query: request.q ?? null,
       items: [],
       provenance: {
-        channels: mode === 'semantic' ? ['vector'] : ['fts', 'trigram'],
+        channels: [],
         rrfK: this.rrfK,
         candidatePool: this.candidatePool,
         embedding: null,
       },
-      completedAt: null,
+      completedAt: freshness.completedAt,
       generatedAt,
     };
   }
@@ -372,7 +389,8 @@ class PostgresSearchPort implements SearchPort {
           FROM catalog_search_documents sd
           JOIN catalog_products p ON p.store_id=sd.store_id AND p.country=sd.country AND p.language=sd.language AND p.product_gid=sd.product_gid
           WHERE sd.store_id=$1 AND sd.country=$2 AND sd.language=$3 AND sd.visible=true AND p.visible=true
-            AND sd.search_vector @@ websearch_to_tsquery(${cfg}, ${query})${constraintsSql(request.constraints, params)}
+            AND sd.search_vector @@ websearch_to_tsquery(${cfg}, ${query})${catalogHardFilterSql(request.constraints, params)}
+          ORDER BY ts_rank_cd(sd.search_vector, websearch_to_tsquery(${cfg}, ${query})) DESC, sd.product_gid ASC
           LIMIT ${pool}
         )`,
       );
@@ -395,7 +413,9 @@ class PostgresSearchPort implements SearchPort {
           JOIN catalog_products p ON p.store_id=sd.store_id AND p.country=sd.country AND p.language=sd.language AND p.product_gid=sd.product_gid
           WHERE sd.store_id=$1 AND sd.country=$2 AND sd.language=$3 AND sd.visible=true AND p.visible=true
             AND (sd.title_normalized % ${query} OR sd.body_normalized % ${query}
-                 OR sd.title_normalized ILIKE ${like} OR sd.body_normalized ILIKE ${like})${constraintsSql(request.constraints, params)}
+                 OR sd.title_normalized ILIKE ${like} OR sd.body_normalized ILIKE ${like})${catalogHardFilterSql(request.constraints, params)}
+          ORDER BY (3 * similarity(sd.title_normalized, ${query}) + similarity(sd.body_normalized, ${query})
+                     + CASE WHEN ${query} = ANY(sd.tags_normalized) THEN 1 ELSE 0 END) DESC, sd.product_gid ASC
           LIMIT ${pool}
         )`,
       );
@@ -406,6 +426,8 @@ class PostgresSearchPort implements SearchPort {
       // Identity predicates: single model/partition only (no cross-model).
       const identity = this.embedding?.identity();
       if (!identity) throw new Error('EMBEDDING_IDENTITY_REQUIRED');
+      params.push(identity.provider);
+      const provider = `$${params.length}`;
       params.push(identity.model);
       const model = `$${params.length}`;
       params.push(identity.modelVersion);
@@ -420,9 +442,12 @@ class PostgresSearchPort implements SearchPort {
                  rank() OVER (ORDER BY e.embedding <=> ${vector}::vector, e.product_gid ASC) AS rank
           FROM catalog_product_embeddings e
           JOIN catalog_products p ON p.store_id=e.store_id AND p.country=e.country AND p.language=e.language AND p.product_gid=e.product_gid
+          JOIN catalog_search_documents sd ON sd.store_id=e.store_id AND sd.country=e.country AND sd.language=e.language AND sd.product_gid=e.product_gid
           WHERE e.store_id=$1 AND e.country=$2 AND e.language=$3
-            AND e.model=${model} AND e.model_version=${modelVersion} AND e.dimension=${dimension}
-            AND p.visible=true${constraintsSql(request.constraints, params)}
+            AND e.provider=${provider} AND e.model=${model} AND e.model_version=${modelVersion} AND e.dimension=${dimension}
+            AND p.visible=true AND sd.visible=true AND sd.content_hash=e.content_hash
+            AND sd.generation=p.generation AND e.generation=sd.generation${catalogHardFilterSql(request.constraints, params)}
+          ORDER BY e.embedding <=> ${vector}::vector, e.product_gid ASC
           LIMIT ${pool}
         )`,
       );
@@ -453,10 +478,11 @@ class PostgresSearchPort implements SearchPort {
                   AND anchor.product_gid = ANY(${products}) AND anchor.product_type <> ''
                   AND anchor.product_type = p.product_type) AS overlap
             FROM catalog_products p
-            WHERE p.store_id=$1 AND p.country=$2 AND p.language=$3 AND p.visible=true${constraintsSql(request.constraints, params)}
+            WHERE p.store_id=$1 AND p.country=$2 AND p.language=$3 AND p.visible=true${catalogHardFilterSql(request.constraints, params)}
           ) cand
           JOIN catalog_products p ON p.store_id=$1 AND p.country=$2 AND p.language=$3 AND p.product_gid=cand.product_gid
           WHERE cand.overlap > 0
+          ORDER BY cand.overlap DESC, cand.product_gid ASC
           LIMIT ${pool}
         )`,
       );
@@ -471,7 +497,7 @@ class PostgresSearchPort implements SearchPort {
     params.push(request.limit);
     const limit = `$${params.length}`;
     // Second hard-filter pass over the fused set (post-fusion guarantee).
-    const finalConstraints = constraintsSql(request.constraints, params);
+    const finalConstraints = catalogHardFilterSql(request.constraints, params);
 
     const sql = `
       WITH ${parts.join(',\n')},

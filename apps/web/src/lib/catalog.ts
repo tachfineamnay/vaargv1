@@ -19,6 +19,8 @@ import {
   type CatalogV1ProductDetailResponse,
   type CatalogV1Related,
   type CatalogV1SearchResponse,
+  storefrontSearchResponseSchema,
+  type StorefrontSearchResponse,
   type CatalogV1Status,
   type CatalogV1VariantDetailResponse,
 } from '@vaarg/shared';
@@ -35,6 +37,7 @@ export type QueryValue = string | number | boolean | undefined;
 export type QueryParams = Record<string, QueryValue>;
 
 export interface CatalogClient {
+  experienceSearch(query: QueryParams): Promise<StorefrontSearchResponse>;
   listProducts(query?: QueryParams): Promise<CatalogV1List>;
   getProduct(ref: string): Promise<CatalogV1ProductDetailResponse>;
   getRelatedProducts(ref: string, query?: QueryParams): Promise<CatalogV1Related>;
@@ -95,6 +98,7 @@ export function createCatalogClient(host: string, options: { timeoutMs?: number 
   const get = <T>(path: string, parse: (raw: unknown) => T): Promise<T> => getJson(host, path, parse, timeoutMs);
 
   return {
+    experienceSearch: query => get(`/v1/experience/catalog-search${buildQueryString(query)}`, raw => storefrontSearchResponseSchema.parse(raw)),
     listProducts: (query) => get(`/v1/catalog/products${buildQueryString(query)}`, (raw) => catalogV1ListSchema.parse(raw)),
     getProduct: (ref) => get(`/v1/catalog/products/${encodeRef(ref)}`, (raw) => catalogV1ProductDetailResponseSchema.parse(raw)),
     getRelatedProducts: (ref, query) =>

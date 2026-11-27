@@ -9,7 +9,7 @@ import {
   type InteractionEvent,
   type InteractionIngestResult,
 } from '@vaarg/shared';
-import { scopedCatalogTransaction } from '../commerce/scope.js';
+import { scopedCatalogTransaction, scopedStoreTransaction } from '../commerce/scope.js';
 
 /**
  * FL05 TASK 07 — durable experience context service. PostgreSQL is the
@@ -55,12 +55,30 @@ interface RevisionRow {
   experience_revision: string;
   brand_revision: string | null;
   configuration_revision: string | null;
+  expires_at?: Date | string | null;
 }
 
-interface EventRow {
-  event_id: string;
-  event_type: string;
-  payload: Record<string, unknown>;
+/**
+ * FIX08: optional behavioral events (purely inferred, no essential
+ * current-request state) are never persisted without personalization
+ * consent. Essential events (explicit criteria, preferences, resets,
+ * conversation/cart refs) are always persisted.
+ */
+export function isOptionalBehavioralEvent(type: string): boolean {
+  return type === 'product_viewed' || type === 'comparison_changed';
+}
+
+/** Serialize writers even before the first revision exists. Customer lock is
+ * shared with consent updates; identity is always re-read under RLS. */
+export async function lockActiveExperience(client: PoolClient, storeId: string, sessionId: string): Promise<string | null> {
+  const identity = await client.query<{ customer_id: string | null }>(
+    'SELECT customer_id FROM visitor_sessions WHERE store_id=$1 AND session_id=$2', [storeId, sessionId]);
+  const customerId = identity.rows[0]?.customer_id ?? null;
+  if (customerId) await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`experience:${storeId}:${customerId}`]);
+  const active = await client.query<{ customer_id: string | null }>(
+    `SELECT customer_id FROM visitor_sessions WHERE store_id=$1 AND session_id=$2 AND status='active' AND expires_at>now() FOR UPDATE`, [storeId, sessionId]);
+  if (!active.rows[0] || active.rows[0].customer_id !== customerId) throw new Error('SESSION_NOT_ACTIVE');
+  return customerId;
 }
 
 function toContext(
@@ -107,11 +125,34 @@ async function readRevision(
   sessionId: string,
 ): Promise<RevisionRow | undefined> {
   const result = await client.query<RevisionRow>(
-    `SELECT state, context_version::text, experience_revision::text, brand_revision, configuration_revision
-     FROM experience_revisions WHERE store_id=$1 AND session_id=$2 AND expires_at > now()`,
+    `SELECT state, context_version::text, experience_revision::text, brand_revision, configuration_revision, expires_at
+     FROM experience_revisions WHERE store_id=$1 AND session_id=$2`,
     [scope.storeId, sessionId],
   );
   return result.rows[0];
+}
+
+/**
+ * Locked read for writers: SELECT ... FOR UPDATE serializes concurrent
+ * ingestion/withdrawal on the revision row, so CAS below never races.
+ * Returns expired rows too; callers clear payloads but retain versions.
+ */
+async function readRevisionForUpdate(
+  client: PoolClient,
+  scope: ExperienceScope,
+  sessionId: string,
+): Promise<RevisionRow | undefined> {
+  const result = await client.query<RevisionRow>(
+    `SELECT state, context_version::text, experience_revision::text, brand_revision, configuration_revision, expires_at
+     FROM experience_revisions WHERE store_id=$1 AND session_id=$2 FOR UPDATE`,
+    [scope.storeId, sessionId],
+  );
+  return result.rows[0];
+}
+
+function isExpired(row: RevisionRow | undefined): boolean {
+  if (!row || !row.expires_at) return false;
+  return new Date(row.expires_at).getTime() <= Date.now();
 }
 
 /** Load the current unified context (fresh read; cache is a fast path only). */
@@ -123,7 +164,7 @@ export async function loadExperienceContext(
 ): Promise<ExperienceContext> {
   return scopedCatalogTransaction(pool, scope, async (client) => {
     const row = await readRevision(client, scope, session.sessionId);
-    return toContext(scope, session, consent, row);
+    return toContext(scope, session, consent, isExpired(row) && row ? { ...row, state: {} } : row);
   });
 }
 
@@ -151,7 +192,18 @@ export async function ingestInteractionEvents(
   if (session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
 
   return scopedCatalogTransaction(pool, scope, async (client) => {
-    const before = await readRevision(client, scope, session.sessionId);
+    const customerId = await lockActiveExperience(client, scope.storeId, session.sessionId);
+    const permission = customerId ? await client.query<{ granted: boolean }>(
+      `SELECT granted FROM marketing_permissions WHERE store_id=$1 AND customer_id=$2 AND purpose='personalization'`,
+      [scope.storeId, customerId]) : null;
+    const personal = options.personalizationGranted && permission?.rows[0]?.granted === true;
+    // Locked read: concurrent ingestion/withdrawal serializes here.
+    const locked = await readRevisionForUpdate(client, scope, session.sessionId);
+    const expired = isExpired(locked);
+    // Expired state is discarded, but versions remain monotonic (no ABA).
+    // Active-session + revision locks serialize first-write and expiry races;
+    // the strict CAS still guards the exact version observed.
+    const before = expired && locked ? { ...locked, state: {} } : locked;
     const current = toContext(scope, session, consent, before);
     if (
       options.expectedContextVersion !== undefined &&
@@ -160,49 +212,59 @@ export async function ingestInteractionEvents(
       throw new Error('CONTEXT_VERSION_CONFLICT');
     }
 
-    // 1. Idempotent insert.
-    let inserted = 0;
-    for (const event of events) {
-      const result = await client.query(
+    // 1. Idempotent insert with RETURNING: only newly-inserted rows are
+    //    reduced. Previously-persisted duplicates never re-enter the
+    //    reducer (FIX02). Optional behavioral events are not persisted
+    //    at all without personalization consent (FIX08).
+    const persistable = events.filter(
+      (event) => personal || !isOptionalBehavioralEvent(event.type),
+    );
+    const skippedOptional = events.length - persistable.length;
+    const insertedRows: Array<{ seq: string; event: InteractionEvent }> = [];
+    for (const event of persistable) {
+      const result = await client.query<{ seq: string; payload: Record<string, unknown> }>(
         `INSERT INTO interaction_events
            (store_id, event_id, session_id, event_type, payload, personalization_allowed, expires_at)
          VALUES ($1,$2,$3,$4,$5::jsonb,$6, now() + ($7::text || ' milliseconds')::interval)
-         ON CONFLICT (store_id, event_id) DO NOTHING`,
+         ON CONFLICT (store_id, event_id) DO NOTHING
+         RETURNING seq::text AS seq, payload`,
         [
           scope.storeId,
           event.eventId,
           session.sessionId,
           event.type,
-          JSON.stringify(event),
-          options.personalizationGranted,
+          JSON.stringify(personal ? event : { eventId: event.eventId, type: event.type }),
+          personal,
           String(retentionMs),
         ],
       );
-      inserted += result.rowCount ?? 0;
+      for (const row of result.rows) insertedRows.push({ seq: row.seq, event });
     }
-    const duplicates = events.length - inserted;
+    const duplicates = persistable.length - insertedRows.length;
 
-    // 2. Newly inserted events in server order (seq ascending).
-    const recent = await client.query<EventRow>(
-      `SELECT event_id, event_type, payload
-       FROM interaction_events
-       WHERE store_id=$1 AND session_id=$2
-         AND event_id = ANY($3::uuid[])
-       ORDER BY seq ASC`,
-      [scope.storeId, session.sessionId, events.map((event) => event.eventId)],
-    );
-    const ordered: InteractionEvent[] = recent.rows.map(
-      (row) => row.payload as unknown as InteractionEvent,
-    );
+    // 2. Reduce ONLY newly accepted events in server sequence order.
+    insertedRows.sort((a, b) => BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0);
+    const ordered = insertedRows.map(row => row.event);
 
-    // 3. Reduce (dedupe set covers batch-internal duplicates).
+    // Duplicate-only (or optional-only without consent): no version bump,
+    // no preference change, no signal rewrite — return current state.
+    if (ordered.length === 0) {
+      return {
+        accepted: 0,
+        duplicates,
+        rejected: skippedOptional,
+        contextVersion: current.contextVersion,
+        experienceRevision: current.experienceRevision,
+        context: current,
+      };
+    }
+
     const reduced = reduceEvents(current, ordered, {
-      personalizationGranted: options.personalizationGranted,
+      personalizationGranted: personal,
       seenEventIds: new Set<string>(),
     });
 
-    // 4. CAS persist. `accepted` events (or duplicate-only batches that
-    // still need a row bootstrap) always write with the expected guard.
+    // 3. Strict CAS persist (versions retained through expiry).
     const newVersion = reduced.context.contextVersion;
     const persist = await client.query(
       `INSERT INTO experience_revisions (store_id, session_id, state, context_version, experience_revision, expires_at)
@@ -212,8 +274,7 @@ export async function ingestInteractionEvents(
          context_version = EXCLUDED.context_version,
          updated_at = now(),
          expires_at = EXCLUDED.expires_at
-       WHERE experience_revisions.context_version = $7
-         AND (experience_revisions.expires_at <= now() OR experience_revisions.context_version = $7)`,
+       WHERE experience_revisions.context_version = $7`,
       [
         scope.storeId,
         session.sessionId,
@@ -221,14 +282,13 @@ export async function ingestInteractionEvents(
         newVersion,
         reduced.context.experienceRevision,
         String(retentionMs),
-        // $7: expected version — the version we read at transaction start.
         String(current.contextVersion),
       ],
     );
     if ((persist.rowCount ?? 0) === 0) throw new Error('CONTEXT_VERSION_CONFLICT');
 
     // Persist inferred signals (consent-gated; bounded, retention-limited).
-    if (options.personalizationGranted) {
+    if (personal) {
       await client.query(
         `DELETE FROM intent_signals WHERE store_id=$1 AND session_id=$2`,
         [scope.storeId, session.sessionId],
@@ -254,7 +314,7 @@ export async function ingestInteractionEvents(
     return {
       accepted: reduced.accepted,
       duplicates,
-      rejected: 0,
+      rejected: skippedOptional,
       contextVersion: reduced.context.contextVersion,
       experienceRevision: reduced.context.experienceRevision,
       context: reduced.context,
@@ -292,26 +352,48 @@ export async function withdrawPersonalization(
   scope: ExperienceScope,
   session: SessionBinding,
 ): Promise<ExperienceContext> {
-  return scopedCatalogTransaction(pool, scope, async (client) => {
-    const row = await readRevision(client, scope, session.sessionId);
-    const current = toContext(scope, session, emptyConsentState(), row);
-    const cleared = applyConsentWithdrawal(current);
-    await client.query(
-      `INSERT INTO experience_revisions (store_id, session_id, state, context_version, experience_revision, expires_at)
-       VALUES ($1,$2,$3::jsonb,$4,$5, now() + interval '7 days')
-       ON CONFLICT (store_id, session_id) DO UPDATE SET
-         state = EXCLUDED.state,
-         context_version = EXCLUDED.context_version,
-         updated_at = now()
-       WHERE experience_revisions.context_version <= $4`,
-      [scope.storeId, session.sessionId, JSON.stringify(stateSlice(cleared)), cleared.contextVersion, cleared.experienceRevision],
-    );
-    await client.query(
-      `DELETE FROM intent_signals WHERE store_id=$1 AND session_id=$2`,
-      [scope.storeId, session.sessionId],
-    );
-    return cleared;
-  });
+  // Locked read + strict CAS (= current version, expired-aware). The row
+  // lock serializes against concurrent ingestion, so a stale ingest that
+  // started before withdrawal cannot restore signals after this commits:
+  // it either commits first (and is then cleared here) or CAS-fails.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await scopedCatalogTransaction(pool, scope, async (client) => {
+        await lockActiveExperience(client, scope.storeId, session.sessionId);
+        const locked = await readRevisionForUpdate(client, scope, session.sessionId);
+        const expired = isExpired(locked);
+        const current = toContext(scope, session, emptyConsentState(), expired && locked ? { ...locked, state: {} } : locked);
+        const cleared = applyConsentWithdrawal(current);
+        const persist = await client.query(
+          `INSERT INTO experience_revisions (store_id, session_id, state, context_version, experience_revision, expires_at)
+           VALUES ($1,$2,$3::jsonb,$4,$5, now() + interval '7 days')
+           ON CONFLICT (store_id, session_id) DO UPDATE SET
+             state = EXCLUDED.state,
+             context_version = EXCLUDED.context_version,
+             updated_at = now()
+           WHERE experience_revisions.context_version = $6`,
+          [
+            scope.storeId,
+            session.sessionId,
+            JSON.stringify(stateSlice(cleared)),
+            cleared.contextVersion,
+            cleared.experienceRevision,
+            String(current.contextVersion),
+          ],
+        );
+        if ((persist.rowCount ?? 0) === 0) throw new Error('CONTEXT_VERSION_CONFLICT');
+        await client.query(
+          `DELETE FROM intent_signals WHERE store_id=$1 AND session_id=$2`,
+          [scope.storeId, session.sessionId],
+        );
+        return cleared;
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CONTEXT_VERSION_CONFLICT' && attempt < 2) continue;
+      throw error;
+    }
+  }
+  throw new Error('CONTEXT_VERSION_CONFLICT');
 }
 
 /**
@@ -326,10 +408,20 @@ export async function publishExperienceRevision(
   expectedContextVersion: number,
 ): Promise<{ experienceRevision: number } | null> {
   return scopedCatalogTransaction(pool, scope, async (client) => {
+    // FIX09: publication requires the authoritative version AND an active
+    // session identity at publication time.
+    await lockActiveExperience(client, scope.storeId, sessionId);
+    // Bootstrap version zero proposals as well as previously ingested contexts.
+    await client.query(`INSERT INTO experience_revisions (store_id,session_id,state,context_version,experience_revision,expires_at)
+      VALUES ($1,$2,'{}',0,0,now()+interval '7 days') ON CONFLICT DO NOTHING`, [scope.storeId, sessionId]);
     const result = await client.query<{ experience_revision: string }>(
       `UPDATE experience_revisions
        SET experience_revision = experience_revision + 1, updated_at = now()
        WHERE store_id=$1 AND session_id=$2 AND context_version=$3 AND expires_at > now()
+         AND EXISTS (
+           SELECT 1 FROM visitor_sessions vs
+           WHERE vs.store_id=$1 AND vs.session_id=$2 AND vs.status='active' AND vs.expires_at > now()
+         )
        RETURNING experience_revision::text`,
       [scope.storeId, sessionId, expectedContextVersion],
     );
@@ -364,6 +456,7 @@ export async function detachExperienceState(
 // ---------------------------------------------------------------------------
 
 export interface ExperienceCacheClient {
+  eval?(script: string, numberOfKeys: number, ...args: string[]): Promise<unknown>;
   get(key: string): Promise<string | null>;
   set(key: string, value: string, mode: 'EX', ttlSeconds: number): Promise<unknown>;
   del(key: string): Promise<unknown>;
@@ -389,15 +482,38 @@ export class ExperienceContextCache {
 
   async set(storeId: string, sessionId: string, context: ExperienceContext, ttlSeconds: number): Promise<void> {
     if (context.session.sessionId !== sessionId) return;
-    await this.client.set(
-      experienceCacheKey(storeId, sessionId),
-      JSON.stringify(context),
-      'EX',
-      Math.max(1, Math.min(ttlSeconds, 86400)),
-    );
+    if (!this.client.eval) return; // No non-atomic GET/SET fallback.
+    await this.client.eval(`
+      local old = redis.call('GET', KEYS[1])
+      if old then
+        local ok, current = pcall(cjson.decode, old)
+        if not ok then return 0 end
+        local incoming = cjson.decode(ARGV[1])
+        if current.contextVersion > incoming.contextVersion or
+           (current.contextVersion == incoming.contextVersion and current.experienceRevision > incoming.experienceRevision) then return 0 end
+      end
+      redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+      return 1`, 1, experienceCacheKey(storeId, sessionId), JSON.stringify(context),
+      String(Math.max(1, Math.min(ttlSeconds, 86400))));
   }
 
   async invalidate(storeId: string, sessionId: string): Promise<void> {
     await this.client.del(experienceCacheKey(storeId, sessionId));
   }
+}
+
+/**
+ * FIX08: usable retention cleanup. Calls the migration-0012
+ * forward-migrated purge_expired_experience function under the store-scoped
+ * RLS boundary. Returns the number of rows removed. Scheduled callers
+ * (worker/cron) invoke this per store; it never touches other stores.
+ */
+export async function purgeExpiredExperience(pool: Pool, storeId: string): Promise<number> {
+  const result = await scopedStoreTransaction(pool, storeId, (client) =>
+    client.query<{ purge_expired_experience: string }>(
+      'SELECT purge_expired_experience($1) AS purge_expired_experience',
+      [storeId],
+    ),
+  );
+  return Number(result.rows[0]?.purge_expired_experience ?? '0');
 }

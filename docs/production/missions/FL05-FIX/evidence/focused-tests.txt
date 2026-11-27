@@ -1,0 +1,48 @@
+
+ RUN  v3.2.7 /home/user/vaargv1/packages/shared
+
+ ✓ test/experience.test.ts (14 tests) 29ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  19:44:44
+   Duration  627ms (transform 214ms, setup 0ms, collect 344ms, tests 29ms, environment 0ms, prepare 80ms)
+
+
+ RUN  v3.2.7 /home/user/vaargv1/packages/persistence
+
+ ✓ test/experience-fix.test.ts (10 tests) 28ms
+ ✓ test/embeddings-gemini.test.ts (9 tests) 23ms
+ ✓ test/store-context-boundary.test.ts (2 tests) 10ms
+ ↓ test/integration/experience-fix.test.ts (3 tests | 3 skipped)
+
+ Test Files  3 passed | 1 skipped (4)
+      Tests  21 passed | 3 skipped (24)
+   Start at  19:44:46
+   Duration  3.04s (transform 345ms, setup 0ms, collect 2.12s, tests 61ms, environment 1ms, prepare 281ms)
+
+
+ RUN  v3.2.7 /home/user/vaargv1/apps/api
+
+ ✓ test/experience-fix.test.ts (3 tests) 29ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:44:50
+   Duration  1.63s (transform 466ms, setup 0ms, collect 1.38s, tests 29ms, environment 0ms, prepare 85ms)
+
+
+ RUN  v3.2.7 /home/user/vaargv1/apps/web
+
+ ✓ test/page.test.tsx (4 tests) 114ms
+ ✓ test/catalog-client.test.ts (10 tests) 62ms
+ ✓ test/search-fix.test.tsx (2 tests) 43ms
+ ✓ test/experience.test.tsx (5 tests) 36ms
+ ✓ test/experience-fix.test.ts (6 tests) 18ms
+ ✓ test/params.test.ts (12 tests) 14ms
+
+ Test Files  6 passed (6)
+      Tests  39 passed (39)
+   Start at  19:44:52
+   Duration  3.34s (transform 499ms, setup 0ms, collect 1.76s, tests 288ms, environment 1ms, prepare 440ms)
+

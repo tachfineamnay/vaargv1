@@ -23,12 +23,15 @@ import {
 } from '@vaarg/shared';
 import {
   createDb,
+  scopedStoreTransaction,
+  experienceCacheKey,
   getConsentMap,
   recordAudit,
   recordConsent,
   withStoreContext,
   type Purpose,
 } from '@vaarg/persistence';
+import { ValkeyClient } from '../infra/valkey-client.js';
 import { DatabaseClient } from '../infra/database-client.js';
 
 export type ConsentActor =
@@ -48,7 +51,8 @@ export type ConsentActor =
  */
 @Injectable()
 export class ConsentService {
-  constructor(@Inject(DatabaseClient) private readonly database: DatabaseClient) {}
+  constructor(@Inject(DatabaseClient) private readonly database: DatabaseClient,
+    @Inject(ValkeyClient) private readonly valkey: ValkeyClient) {}
 
   /** Read the effective consent state for the actor's target customer. */
   async get(
@@ -123,6 +127,11 @@ export class ConsentService {
       });
     });
 
+    if (body.purpose === 'personalization' && !body.granted) {
+      const sessions = await scopedStoreTransaction(this.database.getPool(), tenant.storeId, client =>
+        client.query<{ session_id: string }>('SELECT session_id FROM visitor_sessions WHERE store_id=$1 AND customer_id=$2', [tenant.storeId, targetCustomerId]));
+      for (const session of sessions.rows) await this.valkey.getClient().del(experienceCacheKey(tenant.storeId, session.session_id));
+    }
     const consents = await this.readState(tenant.storeId, targetCustomerId);
     return { customerId: targetCustomerId, consents };
   }

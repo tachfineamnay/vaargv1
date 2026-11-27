@@ -26,6 +26,7 @@
     "migrate": "node dist/db/migrate.js",
     "migrate:generate": "drizzle-kit generate",
     "clean": "rm -rf dist .turbo *.tsbuildinfo",
+    "experience:purge": "node dist/experience/cleanup-cli.js",
     "catalog:step": "node dist/commerce/cli.js"
   },
   "dependencies": {

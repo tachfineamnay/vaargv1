@@ -1,0 +1,16 @@
+
+> @vaarg/shared@1.0.0 typecheck /home/user/vaargv1/packages/shared
+> tsc -p tsconfig.test.json --noEmit
+
+
+> @vaarg/persistence@1.0.0 typecheck /home/user/vaargv1/packages/persistence
+> tsc -p tsconfig.test.json --noEmit
+
+
+> @vaarg/api@1.0.0 typecheck /home/user/vaargv1/apps/api
+> tsc -p tsconfig.test.json --noEmit
+
+
+> @vaarg/web@1.0.0 typecheck /home/user/vaargv1/apps/web
+> tsc -p tsconfig.json --noEmit
+

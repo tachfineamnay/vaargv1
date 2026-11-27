@@ -35,8 +35,8 @@ export const recommendationRequestSchema = z.strictObject({
       productType: z.string().max(200).nullable().default(null),
       vendor: z.string().max(200).nullable().default(null),
       collection: z.string().max(300).nullable().default(null),
-      priceMin: z.string().max(24).nullable().default(null),
-      priceMax: z.string().max(24).nullable().default(null),
+      priceMin: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).nullable().default(null),
+      priceMax: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).nullable().default(null),
       currency: z.string().regex(/^[A-Z]{3}$/).nullable().default(null),
     })
     .default({

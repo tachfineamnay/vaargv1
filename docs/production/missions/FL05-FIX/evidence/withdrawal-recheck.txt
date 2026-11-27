@@ -1,0 +1,29 @@
+
+> @vaarg/persistence@1.0.0 build /home/user/vaargv1/packages/persistence
+> tsc -p tsconfig.json
+
+
+> @vaarg/persistence@1.0.0 typecheck /home/user/vaargv1/packages/persistence
+> tsc -p tsconfig.test.json --noEmit
+
+
+ RUN  v3.2.7 /home/user/vaargv1/apps/api
+
+ ✓ test/experience-fix.test.ts (3 tests) 24ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:42:33
+   Duration  1.58s (transform 448ms, setup 0ms, collect 1.33s, tests 24ms, environment 0ms, prepare 78ms)
+
+
+ RUN  v3.2.7 /home/user/vaargv1/packages/persistence
+
+ ✓ test/experience-fix.test.ts (10 tests) 25ms
+ ↓ test/integration/experience-fix.test.ts (3 tests | 3 skipped)
+
+ Test Files  1 passed | 1 skipped (2)
+      Tests  10 passed | 3 skipped (13)
+   Start at  19:42:35
+   Duration  1.93s (transform 332ms, setup 0ms, collect 1.48s, tests 25ms, environment 0ms, prepare 135ms)
+

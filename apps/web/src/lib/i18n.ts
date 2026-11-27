@@ -106,6 +106,8 @@ const en = {
   'compare.unavailable': 'Unavailable',
   'compare.trayCount': '{count} selected for comparison',
   'compare.trayCta': 'Compare now',
+  'search.degraded': 'Semantic retrieval unavailable; showing lexical results.',
+  'search.bounded': 'Top ranked matches shown. Refine your search for more specific results.',
   'search.title': 'Search',
   'search.placeholder': 'Search products…',
   'search.submit': 'Search',
