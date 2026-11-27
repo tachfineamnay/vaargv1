@@ -30,6 +30,7 @@ import {
   searchResultSchema,
   storefrontSearchResponseSchema,
   visitorSessionSchema,
+  withinCompositionLimits,
   type EmbeddingPort,
   type SearchPort,
 } from '@vaarg/shared';
@@ -535,6 +536,112 @@ export class ExperienceService {
       storeId: verified.storeId, country: verified.country, language: verified.language,
       currency: verified.currency, sessionId: session.sessionId, personalizationGranted: false,
     });
+    return this.buildCapabilitiesFromScope(scope);
+  }
+
+  /**
+   * Server-internal capability binder for ToolBroker: binds to a server-verified
+   * store + market + sessionId (resolved from PostgreSQL agent_runs, never from
+   * agent arguments) without exposing visitor cookie tokens to Hermes. Every call
+   * still re-verifies active store, active visitor_session, and live DB consent.
+   */
+  capabilitiesForServerVerifiedSession(raw: {
+    storeId: string;
+    country: string;
+    language: string;
+    currency: string;
+    sessionId: string;
+  }): ExperienceCapabilities {
+    const scope = experienceCapabilityScopeSchema.parse({
+      storeId: raw.storeId,
+      country: raw.country,
+      language: raw.language,
+      currency: raw.currency,
+      sessionId: raw.sessionId,
+      personalizationGranted: false,
+    });
+    return this.buildCapabilitiesFromScope(scope);
+  }
+
+  async recordConversationMessageEvent(params: {
+    storeId: string;
+    country: string;
+    language: string;
+    currency: string;
+    sessionId: string;
+    conversationId: string;
+    messageId: string;
+  }): Promise<ExperienceContext> {
+    const scope = experienceCapabilityScopeSchema.parse({
+      storeId: params.storeId,
+      country: params.country,
+      language: params.language,
+      currency: params.currency,
+      sessionId: params.sessionId,
+      personalizationGranted: false,
+    });
+    const { tenant, session, personalizationGranted } = await this.resolveCapabilityScope(scope);
+    const result = await ingestInteractionEvents(
+      this.database.getPool(),
+      {
+        storeId: tenant.storeId,
+        country: tenant.country,
+        language: tenant.language,
+        currency: tenant.currency,
+      },
+      { sessionId: session.sessionId, status: session.status, customerId: session.customerId },
+      [
+        {
+          eventId: crypto.randomUUID(),
+          type: 'conversation_message',
+          conversationId: params.conversationId,
+          messageId: params.messageId,
+        },
+      ],
+      { personalizationGranted },
+    );
+    await this.contextCache.invalidate(tenant.storeId, session.sessionId);
+    return experienceContextSchema.parse(result.context);
+  }
+
+  async tryPublishCompositionProposal(params: {
+    storeId: string;
+    country: string;
+    language: string;
+    currency: string;
+    sessionId: string;
+    expectedContextVersion: number;
+    composition: AdaptiveComposition;
+  }): Promise<number | null> {
+    const validated = adaptiveCompositionSchema.parse(params.composition);
+    if (!withinCompositionLimits(validated)) {
+      throw AppError.unprocessable('COMPOSITION_LIMITS_EXCEEDED');
+    }
+    if (
+      validated.sessionId !== params.sessionId ||
+      validated.contextVersion !== params.expectedContextVersion
+    ) {
+      return null;
+    }
+    const published = await publishExperienceRevision(
+      this.database.getPool(),
+      {
+        storeId: params.storeId,
+        country: params.country,
+        language: params.language,
+        currency: params.currency,
+      },
+      params.sessionId,
+      params.expectedContextVersion,
+    );
+    if (published) {
+      await this.contextCache.invalidate(params.storeId, params.sessionId);
+      return published.experienceRevision;
+    }
+    return null;
+  }
+
+  private buildCapabilitiesFromScope(scope: ExperienceCapabilityScope): ExperienceCapabilities {
     return {
       searchCatalog: request => this.searchCatalog(request, scope),
       getExperienceContext: () => this.getExperienceContext(scope),

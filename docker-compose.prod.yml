@@ -64,6 +64,18 @@ services:
       STOREFRONT_BINDINGS_JSON: ${STOREFRONT_BINDINGS_JSON:-[]}
       SHOPIFY_STOREFRONT_TOKEN: ${SHOPIFY_STOREFRONT_TOKEN:-}
       CATALOG_JOB_SIGNING_SECRET: ${CATALOG_JOB_SIGNING_SECRET:-}
+      HERMES_ENABLED: ${HERMES_ENABLED:-false}
+      HERMES_BASE_URL: ${HERMES_BASE_URL:-http://hermes:8642}
+      HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      HERMES_TOOL_BRIDGE_SECRET: ${HERMES_TOOL_BRIDGE_SECRET:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      HATCHET_ENABLED: ${HATCHET_ENABLED:-false}
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+      HATCHET_CLIENT_HOST_PORT: ${HATCHET_CLIENT_HOST_PORT:-}
+      HATCHET_CLIENT_API_URL: ${HATCHET_CLIENT_API_URL:-}
+      HATCHET_CLIENT_NAMESPACE: ${HATCHET_CLIENT_NAMESPACE:-vaarg}
+      HATCHET_CLIENT_TLS_STRATEGY: ${HATCHET_CLIENT_TLS_STRATEGY:-tls}
     depends_on:
       migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
@@ -96,6 +108,15 @@ services:
       STOREFRONT_BINDINGS_JSON: ${STOREFRONT_BINDINGS_JSON:-[]}
       SHOPIFY_STOREFRONT_TOKEN: ${SHOPIFY_STOREFRONT_TOKEN:-}
       CATALOG_JOB_SIGNING_SECRET: ${CATALOG_JOB_SIGNING_SECRET:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      HATCHET_ENABLED: ${HATCHET_ENABLED:-false}
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+      HATCHET_CLIENT_HOST_PORT: ${HATCHET_CLIENT_HOST_PORT:-}
+      HATCHET_CLIENT_API_URL: ${HATCHET_CLIENT_API_URL:-}
+      HATCHET_CLIENT_NAMESPACE: ${HATCHET_CLIENT_NAMESPACE:-vaarg}
+      HATCHET_CLIENT_TLS_STRATEGY: ${HATCHET_CLIENT_TLS_STRATEGY:-tls}
+      HATCHET_WORKER_NAME: ${HATCHET_WORKER_NAME:-vaarg-worker}
+      HATCHET_WORKER_SLOTS: ${HATCHET_WORKER_SLOTS:-10}
     depends_on:
       migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
@@ -131,6 +152,36 @@ services:
       start_period: 20s
     expose: ['3000']
     networks: [edge]
+    stop_grace_period: 30s
+
+  hermes:
+    profiles: ['hermes']
+    build:
+      context: .
+      dockerfile: deploy/hermes/Dockerfile
+    restart: unless-stopped
+    init: true
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    environment:
+      API_SERVER_ENABLED: 'true'
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: '8642'
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      VAARG_INTERNAL_API_URL: http://api:4111
+      HERMES_TOOL_BRIDGE_SECRET: ${HERMES_TOOL_BRIDGE_SECRET:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8642/health']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+    expose: ['8642']
+    networks: [private, edge]
     stop_grace_period: 30s
 
 networks:
