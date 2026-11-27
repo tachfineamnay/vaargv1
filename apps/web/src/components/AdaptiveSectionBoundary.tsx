@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useSyncExternalStore, useState, type ReactElement } from 'react';
 import { adaptiveToSections } from '../lib/adaptive';
 import type { Section } from '../lib/composition';
-import { fetchExperienceComposition, resetExploration } from '../lib/experience-client';
+import { experienceSnapshot, experienceServerSnapshot, subscribeExperience, fetchExperienceComposition, resetExploration } from '../lib/experience-client';
 import { t } from '../lib/i18n';
 import { useCompare } from './CompareProvider';
 import { SectionRenderer } from './SectionRenderer';
@@ -24,30 +24,27 @@ export function AdaptiveSectionBoundary(): ReactElement {
   const [sections, setSections] = useState<Section[]>([]);
 
   const compareKey = compare.ids.join(',');
-  const loadedKeyRef = useRef<string | null>(null);
+  const experience = useSyncExternalStore(subscribeExperience, experienceSnapshot, experienceServerSnapshot);
 
   useEffect(() => {
-    if (session?.view !== 'active') return;
-    // One load per compare-selection signature (initial load included).
-    if (loadedKeyRef.current === compareKey) return;
-    loadedKeyRef.current = compareKey;
-    let cancelled = false;
+    if (session?.view !== 'active' || experience.sessionId !== session.session?.sessionId || experience.suspended) { setSections([]); return; }
+    const controller = new AbortController();
     const ids = compareKey.split(',').filter((entry) => entry.length > 0);
     const compareIds = ids.length >= 2 ? ids : undefined;
     void (async () => {
-      const result = await fetchExperienceComposition(compareIds);
-      if (cancelled || !result.ok) {
+      const result = await fetchExperienceComposition(compareIds, controller.signal);
+      if (controller.signal.aborted || !result.ok) {
         // Optional content: a failure or stale rejection leaves the
         // conventional page untouched (no error wall, no loading screen).
         return;
       }
       const mapped = adaptiveToSections(result.data.sections);
-      if (!cancelled) setSections(mapped);
+      if (!controller.signal.aborted) setSections(mapped);
     })();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [session?.view, compareKey]);
+  }, [session?.view, session?.session?.sessionId, compareKey, experience]);
 
   const returnToGeneral = useCallback((): void => {
     // Fire the server-side reset (ingests exploration_reset, bumps the

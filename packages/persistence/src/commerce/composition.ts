@@ -113,7 +113,7 @@ export async function composeExperience(
     const recommendations = await dependencies.recommendations.recommend(
       {
         limit: 8,
-        constraints: {},
+        constraints: { available: true, attributes: criteria.attributes },
         criteria: {
           query: criteria.query,
           productType: criteria.productType,
@@ -121,7 +121,7 @@ export async function composeExperience(
           collection: criteria.collection,
           priceMin: criteria.priceMin,
           priceMax: criteria.priceMax,
-          currency: criteria.currency ?? null,
+          currency: criteria.currency ?? context.market.currency,
         },
         seedProductRef: context.recentlyViewed[0]?.productRef ?? null,
         signals: input.personalizationGranted

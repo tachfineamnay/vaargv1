@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AdaptiveComposition } from './composition.js';
-import type { ExperienceContext } from './experience.js';
+import { explorationCriteriaSchema, type ExperienceContext } from './experience.js';
+import { adaptationReasonSchema } from './composition.js';
 import type { RecommendationRequest, RecommendationResult } from './recommendation.js';
 import type { SearchRequest, SearchResult } from './search.js';
 
@@ -18,22 +19,33 @@ export const experienceCapabilityScopeSchema = z.strictObject({
   storeId: z.uuid(),
   country: z.string().regex(/^[A-Z]{2}$/),
   language: z.string().regex(/^[A-Z]{2,3}$/),
+  currency: z.string().regex(/^[A-Z]{3}$/),
   /** Verified session id (server-resolved from the credential). */
   sessionId: z.uuid(),
-  /** Effective personalization consent at call time. */
+  /** Server stamp only; implementations MUST re-resolve consent at call time. Never agent-authoritative. */
   personalizationGranted: z.boolean(),
 });
 export type ExperienceCapabilityScope = z.infer<typeof experienceCapabilityScopeSchema>;
 
+export const capabilityCompositionInputSchema = z.strictObject({
+  reason: adaptationReasonSchema.optional(),
+  limit: z.number().int().min(1).max(24).optional(),
+});
+export const capabilityCriteriaInputSchema = z.strictObject({
+  criteria: explorationCriteriaSchema.pick({ query: true, productType: true, vendor: true,
+    collection: true, priceMin: true, priceMax: true, currency: true }).partial(),
+});
+
+/** Bound by the server to a verified request credential. Agent inputs never
+ * supply authority; SearchRequest.scope/context are overwritten by the binding. */
 export interface ExperienceCapabilities {
   /** Hybrid/lexical catalog search within store+market scope. */
-  searchCatalog(request: SearchRequest, scope: ExperienceCapabilityScope): Promise<SearchResult>;
+  searchCatalog(request: SearchRequest): Promise<SearchResult>;
   /** Current unified visitor context (server-authoritative revisions). */
-  getExperienceContext(scope: ExperienceCapabilityScope): Promise<ExperienceContext>;
+  getExperienceContext(): Promise<ExperienceContext>;
   /** Deterministic recommendations; consent-limits inferred signals. */
   getRecommendations(
     request: RecommendationRequest,
-    scope: ExperienceCapabilityScope,
   ): Promise<RecommendationResult>;
   /**
    * Compose a deterministic experience proposal. A PROPOSAL: validation and
@@ -42,7 +54,6 @@ export interface ExperienceCapabilities {
    */
   proposeExperienceComposition(
     input: { reason?: string; limit?: number },
-    scope: ExperienceCapabilityScope,
   ): Promise<AdaptiveComposition>;
   /** Update explicit exploration criteria (current-request scope only). */
   updateExplicitCriteria(
@@ -57,6 +68,5 @@ export interface ExperienceCapabilities {
         currency: string | null;
       }>;
     },
-    scope: ExperienceCapabilityScope,
   ): Promise<ExperienceContext>;
 }

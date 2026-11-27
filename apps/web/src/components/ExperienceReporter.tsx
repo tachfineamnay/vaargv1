@@ -17,7 +17,7 @@ type EventDraft = InteractionEvent extends infer E
     : never
   : never;
 
-function postDraft(draft: EventDraft, keepalive: boolean): void {
+export function postDraft(draft: EventDraft, keepalive: boolean): void {
   if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') return;
   const event: InteractionEvent = { ...draft, eventId: crypto.randomUUID() } as InteractionEvent;
   // Fire-and-forget: adaptation telemetry must never block navigation.
@@ -31,14 +31,16 @@ function useSessionReady(): boolean {
 
 /** Posts a page-view style event once, when the visitor session is active. */
 function OnceReporter({ draft }: { draft: EventDraft }): null {
-  const ready = useSessionReady();
-  const postedRef = useRef(false);
+  const session = useOptionalSession();
+  const identity = session?.view === 'active' ? session.session?.sessionId : null;
+  const postedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!ready || postedRef.current) return;
-    postedRef.current = true;
+    if (!identity) return;
+    const signature = `${identity}:${JSON.stringify(draft)}`;
+    if (postedRef.current === signature) return;
+    postedRef.current = signature;
     postDraft(draft, false);
-    // Post once per mount: `draft` is intentionally not a dependency.
-  }, [ready]);
+  }, [identity, draft]);
   return null;
 }
 

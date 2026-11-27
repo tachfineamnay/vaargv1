@@ -125,7 +125,7 @@ export function reduceEvent(
       // Category selection narrows the current request; it is explicit.
       const next: ExperienceContext = {
         ...context,
-        exploration: { ...exploration, collection: null },
+        exploration: { ...exploration, collection: event.category },
         intentSignals: personal
           ? pushIntentSignal(
               context.intentSignals,
@@ -163,31 +163,30 @@ export function reduceEvent(
       return { context: withRevisionBump(next), applied: true };
     }
     case 'product_viewed': {
-      const recentlyViewed = personal
-        ? clampWindow(
-            [
-              { productRef: event.productRef, viewedAt: at },
-              ...context.recentlyViewed.filter((entry) => entry.productRef !== event.productRef),
-            ],
-            MAX_RECENT_VIEWED,
-          )
-        : context.recentlyViewed;
+      // FIX08: without personalization consent this is purely optional
+      // behavioral data — a no-op (no version bump, no state change).
+      if (!personal) return { context, applied: false };
+      const recentlyViewed = clampWindow(
+        [
+          { productRef: event.productRef, viewedAt: at },
+          ...context.recentlyViewed.filter((entry) => entry.productRef !== event.productRef),
+        ],
+        MAX_RECENT_VIEWED,
+      );
       const next: ExperienceContext = {
         ...context,
         recentlyViewed,
-        intentSignals: personal
-          ? pushIntentSignal(
-              context.intentSignals,
-              {
-                kind: 'product_viewed',
-                subject: event.productRef,
-                weight: weights.product_viewed,
-                observedAt: at,
-                inferred: true,
-              },
-              MAX_INTENT_SIGNALS,
-            )
-          : context.intentSignals,
+        intentSignals: pushIntentSignal(
+          context.intentSignals,
+          {
+            kind: 'product_viewed',
+            subject: event.productRef,
+            weight: weights.product_viewed,
+            observedAt: at,
+            inferred: true,
+          },
+          MAX_INTENT_SIGNALS,
+        ),
       };
       return { context: withRevisionBump(next), applied: true };
     }
@@ -238,22 +237,22 @@ export function reduceEvent(
     }
     case 'comparison_changed': {
       // Comparison membership lives in the cart/compare UI; here it only
-      // feeds a bounded inferred signal when consent permits.
+      // feeds a bounded inferred signal when consent permits. Without
+      // consent it is a no-op (FIX08: no version bump for optional data).
+      if (!personal) return { context, applied: false };
       const next: ExperienceContext = {
         ...context,
-        intentSignals: personal
-          ? pushIntentSignal(
-              context.intentSignals,
-              {
-                kind: 'comparison_changed',
-                subject: [...event.added, ...event.removed].join(',').slice(0, 300) || 'empty',
-                weight: weights.comparison_changed,
-                observedAt: at,
-                inferred: true,
-              },
-              MAX_INTENT_SIGNALS,
-            )
-          : context.intentSignals,
+        intentSignals: pushIntentSignal(
+          context.intentSignals,
+          {
+            kind: 'comparison_changed',
+            subject: [...event.added, ...event.removed].join(',').slice(0, 300) || 'empty',
+            weight: weights.comparison_changed,
+            observedAt: at,
+            inferred: true,
+          },
+          MAX_INTENT_SIGNALS,
+        ),
       };
       return { context: withRevisionBump(next), applied: true };
     }

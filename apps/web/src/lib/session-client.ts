@@ -1,3 +1,4 @@
+import { cancelExperience } from './experience-client';
 import {
   consentStateResponseSchema,
   sessionEnvelopeSchema,
@@ -65,6 +66,7 @@ export function getConsents(): Promise<BffResult<ConsentStateResponse>> {
 }
 
 export function updateConsent(body: { purpose: ConsentPurpose; granted: boolean; note?: string }): Promise<BffResult<ConsentStateResponse>> {
+  if (body.purpose === 'personalization' && !body.granted) cancelExperience(true);
   return request('/api/consent', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) }, (raw) =>
     consentStateResponseSchema.parse(raw),
   );

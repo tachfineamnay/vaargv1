@@ -50,8 +50,8 @@ export const explorationCriteriaSchema = z.strictObject({
   productType: z.string().max(200).nullable(),
   vendor: z.string().max(200).nullable(),
   collection: z.string().max(300).nullable(),
-  priceMin: z.string().max(24).nullable(),
-  priceMax: z.string().max(24).nullable(),
+  priceMin: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).nullable(),
+  priceMax: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
   attributes: z
     .array(z.strictObject({ name: z.string().min(1).max(255), value: z.string().min(1).max(255) }))

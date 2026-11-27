@@ -68,6 +68,17 @@ export class ExperienceController {
     return interactionIngestResultSchema.parse(result);
   }
 
+  @Get('catalog-search')
+  @Header('Cache-Control', 'private, no-store')
+  async catalogSearch(@Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {
+    const tenant = await this.tenants.resolve(request.headers.host, correlationIdOf(request));
+    const mode = query.mode ?? 'lexical';
+    if (mode !== 'lexical' && mode !== 'hybrid') throw new BadRequestException('Unsupported storefront retrieval mode');
+    const parsed = experienceSearchQuerySchema.safeParse({ ...query, mode, currency: tenant.currency });
+    if (!parsed.success) throw new BadRequestException('Invalid search query');
+    return this.experience.storefrontSearch(tenant, parsed.data);
+  }
+
   @Get('search')
   @Header('Cache-Control', 'private, no-store')
   async search(@Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {

@@ -6,10 +6,12 @@ export function SearchInput({
   action,
   defaultValue,
   compact,
+  hidden,
 }: {
   action: string;
   defaultValue?: string | undefined;
   compact?: boolean | undefined;
+  hidden?: Record<string, string> | undefined;
 }): ReactElement {
   return (
     <form
@@ -19,6 +21,7 @@ export function SearchInput({
       role="search"
       data-testid="search-input"
     >
+      {Object.entries(hidden ?? {}).filter(([name]) => name !== 'q').map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
       <label className="search__label">
         <span className="sr-only">{t('search.title')}</span>
         <input

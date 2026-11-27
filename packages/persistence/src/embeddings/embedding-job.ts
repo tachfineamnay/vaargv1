@@ -47,11 +47,13 @@ interface PendingRow {
   body_normalized: string;
   tags_normalized: string[];
   content_hash: string;
+  generation: string;
 }
 
 interface CurrentRow {
   product_gid: string;
   content_hash: string;
+  generation: string;
 }
 
 function documentText(row: PendingRow): string {
@@ -85,7 +87,7 @@ export async function runEmbeddingJob(
   // Phase 1 (read, short transaction): pending documents for this model.
   const pending = await scopedCatalogTransaction(pool, scope, async (client) => {
     const result = await client.query<PendingRow>(
-      `SELECT sd.product_gid, sd.title_normalized, sd.body_normalized, sd.tags_normalized, sd.content_hash
+      `SELECT sd.product_gid, sd.title_normalized, sd.body_normalized, sd.tags_normalized, sd.content_hash, sd.generation
        FROM catalog_search_documents sd
        WHERE sd.store_id=$1 AND sd.country=$2 AND sd.language=$3 AND sd.visible=true
          AND NOT EXISTS (
@@ -93,7 +95,7 @@ export async function runEmbeddingJob(
            WHERE e.store_id=sd.store_id AND e.country=sd.country AND e.language=sd.language
              AND e.product_gid=sd.product_gid
              AND e.model=$4 AND e.model_version=$5 AND e.dimension=$6
-             AND e.content_hash=sd.content_hash
+             AND e.content_hash=sd.content_hash AND e.generation=sd.generation AND e.provider=$8
          )
        ORDER BY sd.product_gid
        LIMIT $7`,
@@ -105,6 +107,7 @@ export async function runEmbeddingJob(
         identity.modelVersion,
         identity.dimension,
         Math.min(batchSize, maxDocuments),
+        identity.provider,
       ],
     );
     return result.rows;
@@ -135,6 +138,7 @@ export async function runEmbeddingJob(
     };
   }
   if (
+    embeddedBatch.identity.provider !== identity.provider ||
     embeddedBatch.identity.model !== identity.model ||
     embeddedBatch.identity.modelVersion !== identity.modelVersion ||
     embeddedBatch.identity.dimension !== identity.dimension
@@ -151,11 +155,11 @@ export async function runEmbeddingJob(
   // write transaction; changed documents are skipped (next run re-embeds).
   const written = await scopedCatalogTransaction(pool, scope, async (client) => {
     const current = await client.query<CurrentRow>(
-      `SELECT product_gid, content_hash FROM catalog_search_documents
-       WHERE store_id=$1 AND country=$2 AND language=$3 AND product_gid = ANY($4::text[]) AND visible=true`,
+      `SELECT product_gid, content_hash, generation FROM catalog_search_documents
+       WHERE store_id=$1 AND country=$2 AND language=$3 AND product_gid = ANY($4::text[]) AND visible=true FOR UPDATE`,
       [scope.storeId, scope.country, scope.language, pending.map((row) => row.product_gid)],
     );
-    const currentHashes = new Map(current.rows.map((row) => [row.product_gid, row.content_hash]));
+    const currentDocs = new Map(current.rows.map((row) => [row.product_gid, row]));
 
     let embedded = 0;
     let stale = 0;
@@ -163,23 +167,26 @@ export async function runEmbeddingJob(
       const row = pending[index];
       const vector = embeddedBatch.vectors[index];
       if (!row || !vector) continue;
-      const observedHash = currentHashes.get(row.product_gid);
+      if (vector.length !== identity.dimension || vector.some(value => !Number.isFinite(value))) throw new Error('EMBEDDING_INVALID_RESPONSE');
+      const document = currentDocs.get(row.product_gid);
+      const observedHash = document?.content_hash;
       // Stale embedding rejection: document changed after we embedded it.
-      if (observedHash !== row.content_hash) {
+      if (observedHash !== row.content_hash || document?.generation !== row.generation) {
         stale += 1;
         continue;
       }
       const result = await client.query(
         `INSERT INTO catalog_product_embeddings
-           (store_id, country, language, product_gid, model, model_version, dimension, content_hash, embedding, generation)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::vector, gen_random_uuid())
-         ON CONFLICT (store_id, country, language, product_gid, model, model_version)
+           (store_id, country, language, product_gid, model, model_version, dimension, content_hash, embedding, generation, provider)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::vector, $10, $11)
+         ON CONFLICT (store_id, country, language, product_gid, provider, model, model_version)
          DO UPDATE SET
            embedding = EXCLUDED.embedding,
            content_hash = EXCLUDED.content_hash,
            generation = EXCLUDED.generation,
            updated_at = now()
          WHERE catalog_product_embeddings.content_hash IS DISTINCT FROM EXCLUDED.content_hash
+            OR catalog_product_embeddings.generation IS DISTINCT FROM EXCLUDED.generation
             OR catalog_product_embeddings.embedding IS DISTINCT FROM EXCLUDED.embedding`,
         [
           scope.storeId,
@@ -191,6 +198,8 @@ export async function runEmbeddingJob(
           identity.dimension,
           observedHash,
           `[${vector.join(',')}]`,
+          document!.generation,
+          identity.provider,
         ],
       );
       if ((result.rowCount ?? 0) > 0) embedded += 1;
@@ -208,9 +217,9 @@ export async function runEmbeddingJob(
            WHERE e.store_id=sd.store_id AND e.country=sd.country AND e.language=sd.language
              AND e.product_gid=sd.product_gid
              AND e.model=$4 AND e.model_version=$5 AND e.dimension=$6
-             AND e.content_hash=sd.content_hash
+             AND e.content_hash=sd.content_hash AND e.generation=sd.generation AND e.provider=$7
          )`,
-      [scope.storeId, scope.country, scope.language, identity.model, identity.modelVersion, identity.dimension],
+      [scope.storeId, scope.country, scope.language, identity.model, identity.modelVersion, identity.dimension, identity.provider],
     );
     return Number(result.rows[0]?.count ?? '0');
   });

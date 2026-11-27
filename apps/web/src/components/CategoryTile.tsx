@@ -1,11 +1,16 @@
+'use client';
+
 import type { ReactElement } from 'react';
 import Link from 'next/link';
+import { postDraft } from './ExperienceReporter';
+import { useOptionalSession } from './SessionProvider';
 import type { CatalogV1Collection } from '@vaarg/shared';
 
 /** Compact collection tile used by the home category section. */
 export function CategoryTile({ collection }: { collection: CatalogV1Collection }): ReactElement {
+  const session = useOptionalSession();
   return (
-    <Link className="tile" href={`/collections/${collection.handle}`} data-testid="category-tile">
+    <Link onClick={() => { if (session?.view === 'active') postDraft({ type: 'category_selected', category: collection.handle }, true); }} className="tile" href={`/collections/${collection.handle}`} data-testid="category-tile">
       {collection.image ? (
         <img
           src={collection.image.url}

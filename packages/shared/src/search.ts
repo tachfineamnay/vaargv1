@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { catalogV1ProductSummarySchema } from './catalog.js';
 
 /**
  * FL05 SearchPort contracts — provider-independent, framework-independent.
@@ -144,6 +145,7 @@ export const searchResultItemSchema = z.strictObject({
 export type SearchResultItem = z.infer<typeof searchResultItemSchema>;
 
 export const searchResultSchema = z.strictObject({
+  catalogStatus: z.enum(['OK', 'NOT_SYNCED', 'IN_PROGRESS', 'STALE']).optional(),
   status: searchAvailabilitySchema,
   mode: searchModeSchema,
   query: z.string().max(200).nullable(),
@@ -154,6 +156,14 @@ export const searchResultSchema = z.strictObject({
   generatedAt: z.iso.datetime(),
 });
 export type SearchResult = z.infer<typeof searchResultSchema>;
+
+/** Bounded ranked storefront results; no fabricated continuation cursor. */
+export const storefrontSearchResponseSchema = searchResultSchema.omit({ items: true }).extend({
+  items: z.array(catalogV1ProductSummarySchema),
+  nextCursor: z.null(),
+});
+export type StorefrontSearchResponse = z.infer<typeof storefrontSearchResponseSchema>;
+
 
 // ---------------------------------------------------------------------------
 // SearchPort — provider-independent interface

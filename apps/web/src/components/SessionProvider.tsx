@@ -10,6 +10,8 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { usePathname } from 'next/navigation';
+import { bindExperienceSession, cancelExperience } from '../lib/experience-client';
 import type { SessionEnvelope } from '@vaarg/shared';
 import type { StorefrontError } from '../lib/errors';
 import { bootstrapSession, getSession, revokeSession, rotateSession } from '../lib/session-client';
@@ -51,15 +53,21 @@ export function useOptionalSession(): SessionContextValue | null {
 
 export function SessionProvider({ children }: { children: ReactNode }): ReactElement {
   const [state, setState] = useState<SessionState>({ view: 'loading', session: null, tenant: null, error: null });
+  const pathname = usePathname();
+  useEffect(() => { cancelExperience(false, true); }, [pathname]);
   const startedRef = useRef(false);
+  const lifecycleRef = useRef(0);
 
   const applyEnvelope = useCallback((envelope: SessionEnvelope) => {
+    bindExperienceSession(envelope.session.sessionId);
     setState({ view: 'active', session: envelope.session, tenant: envelope.tenant, error: null });
   }, []);
 
   const bootstrap = useCallback(
     async (fromExpired = false) => {
+      const lifecycle = ++lifecycleRef.current;
       const result = await bootstrapSession();
+      if (lifecycle !== lifecycleRef.current) return;
       if (result.ok) {
         applyEnvelope(result.data);
         return;
@@ -74,7 +82,9 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactEle
   );
 
   const refresh = useCallback(async () => {
+    const lifecycle = ++lifecycleRef.current;
     const result = await getSession();
+    if (lifecycle !== lifecycleRef.current) return;
     if (result.ok) {
       applyEnvelope(result.data);
       return;
@@ -83,11 +93,15 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactEle
       await bootstrap();
       return;
     }
+    bindExperienceSession(null);
     setState({ view: 'error', session: null, tenant: null, error: result.error });
   }, [applyEnvelope, bootstrap]);
 
   const rotate = useCallback(async () => {
+    const lifecycle = ++lifecycleRef.current;
+    bindExperienceSession(null);
     const result = await rotateSession();
+    if (lifecycle !== lifecycleRef.current) return;
     if (result.ok) {
       applyEnvelope(result.data);
       return;
@@ -100,7 +114,10 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactEle
   }, [applyEnvelope, bootstrap]);
 
   const revoke = useCallback(async () => {
+    const lifecycle = ++lifecycleRef.current;
+    bindExperienceSession(null);
     const result = await revokeSession();
+    if (lifecycle !== lifecycleRef.current) return;
     if (result.ok || result.error.kind === 'unauthorized') {
       setState({ view: 'anonymous', session: null, tenant: null, error: null });
       return;
@@ -125,6 +142,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactEle
       const remaining = Date.parse(session.expiresAt) - Date.now();
       if (remaining <= 0) {
         if (cancelled) return;
+        bindExperienceSession(null);
         setState((current) => (current.view === 'active' ? { ...current, view: 'expired' } : current));
         void bootstrap(true);
         return;
