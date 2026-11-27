@@ -8,6 +8,8 @@ coverage/
 .turbo/
 .cache/
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 playwright-report/
 test-results/
 *.log
