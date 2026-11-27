@@ -102,6 +102,47 @@ function renderSection(section: Section): ReactElement {
       return <EmptyState kind={section.kind} />;
     case 'state-error':
       return <ErrorState error={section.error} />;
+    case 'suggestion-chips':
+      return (
+        <>
+          {section.title ? (
+            <div className="section__head">
+              <h2>{section.title}</h2>
+            </div>
+          ) : null}
+          <div className="chip-row" data-testid="suggestion-chips">
+            {section.chips.map((chip) => (
+              <Link key={`${chip.href}:${chip.label}`} className="chip chip--link" href={chip.href}>
+                {chip.label}
+              </Link>
+            ))}
+          </div>
+        </>
+      );
+    case 'collection-tiles':
+      return (
+        <>
+          {section.title ? (
+            <div className="section__head">
+              <h2>{section.title}</h2>
+            </div>
+          ) : null}
+          <div className="grid grid--tiles">
+            {section.collections.map((collection) => (
+              <Link
+                key={`${collection.slug}:${collection.title}`}
+                className="tile"
+                href={`/collections/${collection.slug}`}
+                data-testid="adaptive-collection-tile"
+              >
+                <span className="tile__placeholder" aria-hidden="true" />
+                <span className="tile__title">{collection.title}</span>
+                <span className="tile__count">{collection.productCount}</span>
+              </Link>
+            ))}
+          </div>
+        </>
+      );
     default: {
       const exhaustive: never = section;
       return exhaustive;

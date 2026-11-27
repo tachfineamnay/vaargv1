@@ -5,6 +5,7 @@ import type { CatalogV1CollectionResponse } from '@vaarg/shared';
 import { CatalogStatus } from '../../../components/CatalogStatus';
 import { EmptyState, emptyKindForStatus } from '../../../components/EmptyState';
 import { ErrorState } from '../../../components/ErrorState';
+import { CollectionViewReporter } from '../../../components/ExperienceReporter';
 import { FilterPanel } from '../../../components/FilterPanel';
 import { PaginationControl } from '../../../components/PaginationControl';
 import { ProductGrid } from '../../../components/ProductCard';
@@ -70,6 +71,7 @@ export default async function CollectionDetailPage({
 
   return (
     <>
+      <CollectionViewReporter collection={handle} />
       <section className="page-head">
         <nav className="breadcrumb">
           <Link href="/collections">← {t('nav.collections')}</Link>

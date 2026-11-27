@@ -144,6 +144,7 @@ const en = {
   'home.viewCollections': 'All collections',
   'editorial.readMore': 'Journal',
   'boundary.label': 'Adaptive content boundary',
+  'adaptive.returnToGeneral': 'Return to general exploration',
   'loading.page': 'Loading catalog…',
 } as const;
 

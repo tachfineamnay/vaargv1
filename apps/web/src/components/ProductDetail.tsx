@@ -9,6 +9,7 @@ import { EmptyState } from './EmptyState';
 import { ErrorState } from './ErrorState';
 import { ProductAttributes } from './ProductAttributes';
 import { ProductGallery } from './ProductGallery';
+import { ProductViewReporter } from './ExperienceReporter';
 import { Recommendations } from './Recommendations';
 import { VariantSelector } from './VariantSelector';
 
@@ -39,6 +40,7 @@ export function ProductDetail({
   });
   return (
     <div className="product-detail" data-testid="product-detail">
+      <ProductViewReporter productRef={summary.id} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
       <nav className="product-detail__breadcrumb">
         <Link href="/products">← {t('product.backToProducts')}</Link>

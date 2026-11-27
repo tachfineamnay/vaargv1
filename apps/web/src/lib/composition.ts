@@ -21,6 +21,8 @@ export const SECTION_TYPES = [
   'editorial',
   'state-empty',
   'state-error',
+  'suggestion-chips',
+  'collection-tiles',
 ] as const;
 
 export type SectionType = (typeof SECTION_TYPES)[number];
@@ -49,7 +51,19 @@ export type Section =
   | { id: string; type: 'comparison'; comparison: CatalogV1Comparison; ids: string[] }
   | { id: string; type: 'editorial'; entries: EditorialEntry[] }
   | { id: string; type: 'state-empty'; kind: EmptyStateKind }
-  | { id: string; type: 'state-error'; error: StorefrontError };
+  | { id: string; type: 'state-error'; error: StorefrontError }
+  | {
+      id: string;
+      type: 'suggestion-chips';
+      title: string;
+      chips: { label: string; href: string }[];
+    }
+  | {
+      id: string;
+      type: 'collection-tiles';
+      title: string;
+      collections: { slug: string; title: string; productCount: number }[];
+    };
 
 /**
  * Home composition (hero + commerce + editorial) from settled fetches:

@@ -227,6 +227,9 @@ section.page-head h1 { margin-bottom: 0.25rem; }
   cursor: pointer;
 }
 .chip--active { border-color: var(--accent); color: var(--accent); }
+.chip--link { text-decoration: none; color: inherit; }
+.chip--link:hover { border-color: var(--accent); color: var(--accent); }
+.chip-row { display: flex; flex-wrap: wrap; margin: 0.25rem 0; }
 .sort-control__options { display: flex; flex-wrap: wrap; }
 
 .search { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
