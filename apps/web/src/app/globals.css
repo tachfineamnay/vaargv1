@@ -376,3 +376,368 @@ section.page-head h1 { margin-bottom: 0.25rem; }
 }
 .site-footer nav ul { display: flex; gap: 1rem; list-style: none; padding: 0; }
 .site-footer a { color: var(--muted); }
+
+/* ---------------------------------------------------------------------------
+   FL07 — Agentic Storefront, A2UI 1.0 Surfaces & Personal Shopper Drawer
+   --------------------------------------------------------------------------- */
+
+.site-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.shopper-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.shopper-trigger:hover,
+.shopper-trigger:focus-visible,
+.shopper-trigger--active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.shopper-trigger__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #8a6d3b;
+}
+
+.shopper-trigger__pulse {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #12b76a;
+}
+
+/* A2UI 1.0 Adaptive Bento & Grounded Surface Grid */
+.a2ui-surfaces {
+  margin: 1.5rem 0;
+}
+
+.a2ui-bento {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem;
+  background: #fff;
+}
+
+.a2ui-surface__meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.a2ui-freshness--fresh {
+  color: #027a48;
+  background: #ecfdf3;
+  border-color: #abefc6;
+}
+
+.a2ui-freshness--stale {
+  color: #b54708;
+  background: #fffaeb;
+  border-color: #fedf89;
+}
+
+.a2ui-bento__title {
+  margin: 0 0 0.85rem;
+  font-size: 1.25rem;
+}
+
+.a2ui-bento--bento .a2ui-bento__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.25rem;
+}
+
+.a2ui-bento--stack .a2ui-bento__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.a2ui-cell {
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--paper);
+}
+
+.a2ui-cell--wide {
+  grid-column: 1 / -1;
+}
+
+.a2ui-surfaces--compact .a2ui-bento {
+  padding: 0.85rem;
+}
+
+.a2ui-surfaces--compact .a2ui-cell {
+  padding: 0.75rem;
+}
+
+.a2ui-guided__header {
+  margin-bottom: 0.75rem;
+}
+
+.a2ui-guided__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.a2ui-guided__prompt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.a2ui-guided__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.6rem;
+}
+
+.a2ui-guided__option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.a2ui-guided__option:hover,
+.a2ui-guided__option:focus-visible {
+  border-color: var(--ink);
+}
+
+.a2ui-guided__option-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.a2ui-guided__option-desc {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.a2ui-fallback {
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Persistent Non-Blocking Personal Shopper Drawer */
+.shopper-drawer {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  width: min(26rem, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 18px 48px rgb(20 17 15 / 16%);
+  z-index: 40;
+  overflow: hidden;
+}
+
+.shopper-drawer__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--paper);
+}
+
+.shopper-drawer__title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.shopper-drawer__subtitle {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.shopper-drawer__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.shopper-drawer__icon-btn {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.shopper-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.shopper-empty {
+  margin: 0;
+  padding: 0.85rem;
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.shopper-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.shopper-msg {
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  max-width: 92%;
+}
+
+.shopper-msg__content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.shopper-msg--user {
+  align-self: flex-end;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.shopper-msg--assistant {
+  align-self: flex-start;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.shopper-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.shopper-step-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+}
+
+.shopper-status {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.shopper-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shopper-proposal-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--paper);
+}
+
+.shopper-proposal-stale {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.shopper-banner {
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.shopper-banner--muted {
+  background: var(--paper);
+  color: var(--muted);
+}
+
+.shopper-banner--error {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+  background: #fef3f2;
+}
+
+.shopper-drawer__composer {
+  padding: 0.85rem 1.15rem;
+  border-top: 1px solid var(--border);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shopper-drawer__composer textarea {
+  width: 100%;
+  resize: none;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+.shopper-drawer__composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+

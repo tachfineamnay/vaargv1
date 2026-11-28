@@ -2,7 +2,9 @@ import { Worker, type HatchetClient } from '@hatchet-dev/typescript-sdk';
 import type pino from 'pino';
 import type { ImplementedWorkflowName } from '@vaarg/shared';
 import {
+  HatchetWorkflowDispatcher,
   createHatchetSdkClient,
+  createRealHatchetSdkDriver,
   resolveHatchetSdkConfig,
 } from '@vaarg/persistence';
 import {
@@ -39,7 +41,16 @@ export function createHatchetWorkerHost(
 
   let currentStatus: 'CONFIGURED' | 'RUNNING' | 'STOPPED' = 'CONFIGURED';
   const client: HatchetClient = createHatchetSdkClient(resolved.config);
-  const built = buildRegisteredHatchetWorkflows(deps, client);
+  const continuationDispatcher =
+    deps.workflowOrchestration ??
+    new HatchetWorkflowDispatcher(deps.pool, createRealHatchetSdkDriver(client), {
+      status: 'READY',
+      detail: `Hatchet worker continuation dispatcher (${resolved.config.workerName})`,
+    });
+  const built = buildRegisteredHatchetWorkflows(
+    { ...deps, workflowOrchestration: continuationDispatcher },
+    client,
+  );
   let hatchetWorker: Worker | null = null;
   let runLoopPromise: Promise<void> | null = null;
 

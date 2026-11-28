@@ -3,6 +3,8 @@ import type { ReactElement, ReactNode } from 'react';
 import './globals.css';
 import { CompareProvider } from '../components/CompareProvider';
 import { CompareTray } from '../components/CompareTray';
+import { PersonalShopperDrawer } from '../components/PersonalShopperDrawer';
+import { PersonalShopperProvider } from '../components/PersonalShopperProvider';
 import { SessionProvider } from '../components/SessionProvider';
 import { StorefrontFooter } from '../components/StorefrontFooter';
 import { StorefrontHeader } from '../components/StorefrontHeader';
@@ -23,10 +25,13 @@ export default function RootLayout({ children }: { children: ReactNode }): React
         </a>
         <SessionProvider>
           <CompareProvider>
-            <StorefrontHeader />
-            <main id="main">{children}</main>
-            <CompareTray />
-            <StorefrontFooter />
+            <PersonalShopperProvider>
+              <StorefrontHeader />
+              <main id="main">{children}</main>
+              <PersonalShopperDrawer />
+              <CompareTray />
+              <StorefrontFooter />
+            </PersonalShopperProvider>
           </CompareProvider>
         </SessionProvider>
       </body>

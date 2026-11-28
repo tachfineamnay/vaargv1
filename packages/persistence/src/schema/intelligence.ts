@@ -191,6 +191,7 @@ export const agentRuns = pgTable(
     validatedOutput: jsonb('validated_output').$type<Record<string, unknown>>(),
     errorCode: varchar('error_code', { length: 80 }),
     errorMessage: varchar('error_message', { length: 500 }),
+    eventSeq: bigint('event_seq', { mode: 'number' }).notNull().default(0),
     retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -473,3 +474,33 @@ export const workflowExecutions = pgTable(
     ),
   ],
 );
+
+export const agentRunEvents = pgTable(
+  'agent_run_events',
+  {
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => stores.storeId, { onDelete: 'cascade' }),
+    runId: uuid('run_id').notNull(),
+    eventSeq: bigint('event_seq', { mode: 'number' }).notNull(),
+    eventId: varchar('event_id', { length: 160 }).notNull(),
+    agUiType: varchar('ag_ui_type', { length: 64 }).notNull(),
+    sourceKey: varchar('source_key', { length: 160 }),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'agent_run_events_pkey',
+      columns: [table.storeId, table.runId, table.eventSeq],
+    }),
+    foreignKey({
+      name: 'agent_run_events_store_run_fk',
+      columns: [table.storeId, table.runId],
+      foreignColumns: [agentRuns.storeId, agentRuns.runId],
+    }).onDelete('cascade'),
+    index('agent_run_events_retention_idx').on(table.storeId, table.retentionExpiresAt),
+  ],
+);
+

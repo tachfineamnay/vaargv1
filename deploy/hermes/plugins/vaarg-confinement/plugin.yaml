@@ -1,6 +1,6 @@
 name: vaarg-confinement
-version: 1.0.0
-description: VAARG V1 preventive budget reservation, child-session registration, tool denylist, and authenticated ToolBroker bridge for Hermes v0.23.4.
+version: 1.1.0
+description: VAARG V1 preventive budget reservation, HMAC runtime confinement attestation, child-session policy resolution, tool denylist, and authenticated ToolBroker bridge for Hermes v0.23.4.
 author: VAARG
 requires_env:
   - VAARG_INTERNAL_API_URL

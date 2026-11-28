@@ -15,6 +15,8 @@ import {
   redactSensitiveText,
   redactStructuredRecord,
   structuredMessagePayloadSchema,
+  validateSafeAgUiEvent,
+  type AGUIEvent,
   type ActionProposal,
   type ActionProposalStatus,
   type ActionProposalType,
@@ -25,6 +27,7 @@ import {
   type ConversationMessage,
   type ConversationSummary,
   type DirectModelProvider,
+  type PersistedAgUiStreamEnvelope,
   type ProviderPolicy,
   type RunBudgetPolicy,
   type StructuredMessagePayload,
@@ -1898,5 +1901,266 @@ export async function purgeExpiredIntelligenceData(
       [storeId, asOf],
     );
     return rows[0]?.result ?? {};
+  });
+}
+
+// ============================================================================
+// FL07 — Active Session Conversation Reuse, Post-Run Publication & AG-UI Stream Log
+// ============================================================================
+
+const DEFAULT_RUN_EVENT_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_RETAINED_EVENTS_PER_RUN = 400;
+
+export async function getLatestActiveConversationForSession(
+  pool: Pool,
+  params: { storeId: string; sessionId: string },
+): Promise<Conversation | null> {
+  return scopedStoreTransaction(pool, params.storeId, async (client) => {
+    await assertActiveSessionOwnership(client, params.storeId, params.sessionId);
+    const { rows } = await client.query(
+      `SELECT * FROM conversations
+        WHERE store_id = $1 AND session_id = $2 AND status = 'active' AND retention_expires_at > now()
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      [params.storeId, params.sessionId],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? mapConversationRow(row) : null;
+  });
+}
+
+export async function getOwnedActionProposalById(
+  pool: Pool,
+  params: { storeId: string; sessionId: string; proposalId: string },
+): Promise<ActionProposal | null> {
+  return scopedStoreTransaction(pool, params.storeId, async (client) => {
+    await assertActiveSessionOwnership(client, params.storeId, params.sessionId);
+    const { rows } = await client.query(
+      `SELECT * FROM action_proposals
+        WHERE store_id = $1 AND session_id = $2 AND proposal_id = $3
+        LIMIT 1`,
+      [params.storeId, params.sessionId, params.proposalId],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? mapActionProposalRow(row) : null;
+  });
+}
+
+export async function markRunPublishedExperienceRevision(
+  pool: Pool,
+  params: {
+    storeId: string;
+    runId: string;
+    proposalId: string;
+    experienceRevision: number;
+  },
+): Promise<void> {
+  await scopedStoreTransaction(pool, params.storeId, async (client) => {
+    await client.query(
+      `UPDATE action_proposals
+          SET status = 'applied',
+              applied_experience_revision = $3,
+              resolved_at = COALESCE(resolved_at, now()),
+              updated_at = now()
+        WHERE store_id = $1 AND proposal_id = $2`,
+      [params.storeId, params.proposalId, params.experienceRevision],
+    );
+    await client.query(
+      `UPDATE agent_runs
+          SET published_experience_revision = $3,
+              updated_at = now()
+        WHERE store_id = $1 AND run_id = $2`,
+      [params.storeId, params.runId, params.experienceRevision],
+    );
+    await client.query(
+      `UPDATE messages
+          SET structured_payload = jsonb_set(
+                COALESCE(structured_payload, '{}'::jsonb),
+                '{experienceRevision}',
+                to_jsonb($3::bigint),
+                true
+              )
+        WHERE store_id = $1 AND run_id = $2 AND role = 'assistant'`,
+      [params.storeId, params.runId, params.experienceRevision],
+    );
+  });
+}
+
+export async function appendAgentRunStreamEvent(
+  pool: Pool,
+  params: {
+    storeId: string;
+    runId: string;
+    event: AGUIEvent;
+    sourceKey?: string;
+    maxRetainedEvents?: number;
+  },
+): Promise<PersistedAgUiStreamEnvelope> {
+  const checked = validateSafeAgUiEvent(params.event);
+  if (!checked.ok) {
+    throw AppError.unprocessable(`UNSAFE_AGUI_EVENT: ${checked.reason}`);
+  }
+  const maxRetained = Math.min(
+    1_000,
+    Math.max(32, params.maxRetainedEvents ?? MAX_RETAINED_EVENTS_PER_RUN),
+  );
+
+  return scopedStoreTransaction(pool, params.storeId, async (client) => {
+    if (params.sourceKey) {
+      const existing = await client.query(
+        `SELECT event_seq::text AS event_seq, event_id, payload
+           FROM agent_run_events
+          WHERE store_id = $1 AND run_id = $2 AND source_key = $3
+          LIMIT 1`,
+        [params.storeId, params.runId, params.sourceKey],
+      );
+      const existingRow = existing.rows[0] as
+        | { event_seq: string; event_id: string; payload: unknown }
+        | undefined;
+      if (existingRow) {
+        const reparsed = validateSafeAgUiEvent(existingRow.payload);
+        if (!reparsed.ok) {
+          throw AppError.unavailable('Corrupted persisted AG-UI event payload');
+        }
+        return {
+          eventSeq: Number(existingRow.event_seq),
+          eventId: existingRow.event_id,
+          runId: params.runId,
+          event: reparsed.event,
+        };
+      }
+    }
+
+    const seqRes = await client.query<{ event_seq: string }>(
+      `UPDATE agent_runs
+          SET event_seq = event_seq + 1,
+              updated_at = now()
+        WHERE store_id = $1 AND run_id = $2
+        RETURNING event_seq::text AS event_seq`,
+      [params.storeId, params.runId],
+    );
+    const seqRow = seqRes.rows[0];
+    if (!seqRow) {
+      throw AppError.notFound('Agent run not found for stream event append');
+    }
+    const eventSeq = Number(seqRow.event_seq);
+    const eventId = `${params.runId}:${eventSeq}`;
+
+    await client.query(
+      `INSERT INTO agent_run_events (
+         store_id, run_id, event_seq, event_id, ag_ui_type,
+         source_key, payload, retention_expires_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      [
+        params.storeId,
+        params.runId,
+        eventSeq,
+        eventId,
+        checked.event.type,
+        params.sourceKey ?? null,
+        JSON.stringify(checked.event),
+        new Date(Date.now() + DEFAULT_RUN_EVENT_TTL_MS),
+      ],
+    );
+
+    if (eventSeq > maxRetained) {
+      await client.query(
+        `DELETE FROM agent_run_events
+          WHERE store_id = $1 AND run_id = $2 AND event_seq <= $3`,
+        [params.storeId, params.runId, eventSeq - maxRetained],
+      );
+    }
+
+    return {
+      eventSeq,
+      eventId,
+      runId: params.runId,
+      event: checked.event,
+    };
+  });
+}
+
+export async function listAgentRunStreamEvents(
+  pool: Pool,
+  params: {
+    storeId: string;
+    sessionId: string;
+    runId: string;
+    afterSeq?: number;
+    limit?: number;
+  },
+): Promise<{
+  events: PersistedAgUiStreamEnvelope[];
+  minRetainedSeq: number | null;
+  latestEventSeq: number;
+  resyncRequired: boolean;
+}> {
+  const afterSeq = Math.max(0, Math.trunc(params.afterSeq ?? 0));
+  const limit = Math.min(500, Math.max(1, Math.trunc(params.limit ?? 250)));
+
+  return scopedStoreTransaction(pool, params.storeId, async (client) => {
+    await assertActiveSessionOwnership(client, params.storeId, params.sessionId);
+
+    const runRes = await client.query<{ event_seq: string }>(
+      `SELECT event_seq::text AS event_seq
+         FROM agent_runs
+        WHERE store_id = $1 AND session_id = $2 AND run_id = $3
+        LIMIT 1`,
+      [params.storeId, params.sessionId, params.runId],
+    );
+    const runRow = runRes.rows[0];
+    if (!runRow) {
+      throw AppError.notFound('Agent run not found for active visitor session');
+    }
+    const latestEventSeq = Number(runRow.event_seq);
+
+    const minRes = await client.query<{ min_seq: string | null }>(
+      `SELECT MIN(event_seq)::text AS min_seq
+         FROM agent_run_events
+        WHERE store_id = $1 AND run_id = $2`,
+      [params.storeId, params.runId],
+    );
+    const minRetainedSeq =
+      minRes.rows[0]?.min_seq !== null && minRes.rows[0]?.min_seq !== undefined
+        ? Number(minRes.rows[0].min_seq)
+        : null;
+
+    const resyncRequired =
+      afterSeq > 0 &&
+      ((minRetainedSeq === null && latestEventSeq > 0) ||
+        (minRetainedSeq !== null && minRetainedSeq > afterSeq + 1));
+
+    const { rows } = await client.query<{
+      event_seq: string;
+      event_id: string;
+      payload: unknown;
+    }>(
+      `SELECT event_seq::text AS event_seq, event_id, payload
+         FROM agent_run_events
+        WHERE store_id = $1 AND run_id = $2 AND event_seq > $3
+        ORDER BY event_seq ASC
+        LIMIT $4`,
+      [params.storeId, params.runId, afterSeq, limit],
+    );
+
+    const events: PersistedAgUiStreamEnvelope[] = [];
+    for (const r of rows) {
+      const validated = validateSafeAgUiEvent(r.payload);
+      if (validated.ok) {
+        events.push({
+          eventSeq: Number(r.event_seq),
+          eventId: r.event_id,
+          runId: params.runId,
+          event: validated.event,
+        });
+      }
+    }
+
+    return {
+      events,
+      minRetainedSeq,
+      latestEventSeq,
+      resyncRequired,
+    };
   });
 }

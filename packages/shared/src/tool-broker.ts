@@ -309,11 +309,25 @@ export const hermesBridgeSubagentStartSchema = z
     delegationId: z.string().min(1).max(200),
     role: agentRoleSchema,
     depth: z.number().int().min(1).max(8),
-    provider: directModelProviderSchema,
-    model: z.string().min(1).max(120),
+    provider: directModelProviderSchema.optional(),
+    model: z.string().min(1).max(120).optional(),
   })
   .strict();
 export type HermesBridgeSubagentStartRequest = z.infer<typeof hermesBridgeSubagentStartSchema>;
+
+export const hermesBridgeRuntimeAttestSchema = z
+  .object({
+    runtimeInstanceId: z.string().min(1).max(120),
+    hermesVersion: z.string().min(1).max(64),
+    pluginVersion: z.string().min(1).max(64),
+    activeHooks: z.array(z.string().min(1).max(80)).min(1).max(16),
+    registeredCapabilities: z.array(z.string().min(1).max(120)).min(1).max(32),
+    forbiddenToolsBlocked: z.boolean(),
+    timestampMs: z.number().int().positive(),
+    signature: z.string().min(32).max(256),
+  })
+  .strict();
+export type HermesBridgeRuntimeAttestRequest = z.infer<typeof hermesBridgeRuntimeAttestSchema>;
 
 export const hermesBridgeSubagentStopSchema = z
   .object({

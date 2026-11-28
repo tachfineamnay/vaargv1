@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import {
+  adaptiveCompositionSchema,
+  compileCompositionToA2UiMessages,
   experienceCompositionQuerySchema,
   experienceContextResponseSchema,
   experienceRecommendationsQuerySchema,
@@ -19,11 +21,11 @@ import {
   experienceSearchQuerySchema,
   interactionIngestRequestSchema,
   interactionIngestResultSchema,
+  searchResultSchema,
   type ConsentState,
   type TenantContext,
   type VisitorSession,
 } from '@vaarg/shared';
-import { adaptiveCompositionSchema, searchResultSchema } from '@vaarg/shared';
 import { ExperienceService } from './experience.service.js';
 import { TenantContextResolver } from '../tenant/tenant-context.resolver.js';
 import { VisitorSessionService } from '../sessions/visitor-session.service.js';
@@ -113,6 +115,29 @@ export class ExperienceController {
       publish: false,
     });
     return adaptiveCompositionSchema.parse(proposal);
+  }
+
+  @Get('a2ui')
+  @Header('Cache-Control', 'private, no-store')
+  async compositionA2Ui(@Query() query: Record<string, unknown>, @Req() request: FastifyRequest) {
+    const parsed = experienceCompositionQuerySchema.safeParse(query);
+    if (!parsed.success) throw new BadRequestException('Invalid composition query');
+    const { tenant, session, consent } = await this.resolveViewer(request);
+    const comparisonRefs = parseCompareList(parsed.data.compare);
+    const proposal = await this.experience.composition(tenant, session, consent, {
+      comparisonRefs,
+      publish: false,
+    });
+    const compiled = compileCompositionToA2UiMessages({
+      composition: proposal,
+      surfaceKind: 'adaptive',
+    });
+    return {
+      surfaceId: compiled.surfaceId,
+      catalogId: compiled.catalogId,
+      composition: proposal,
+      messages: compiled.messages,
+    };
   }
 
   @Post('refresh')

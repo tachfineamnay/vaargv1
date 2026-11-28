@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Body,
@@ -10,9 +11,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AppError,
   buildStoreMarketConcurrencyKey,
@@ -23,10 +25,13 @@ import {
   type VisitorSession,
   type WorkflowOrchestrationPort,
 } from '@vaarg/shared';
-import { randomUUID } from 'node:crypto';
 import { issueCatalogDelegation, type StorefrontBinding } from '@vaarg/persistence';
 import { assertSafeCookieMutation } from '../common/csrf.js';
-import { correlationIdOf, merchantCredential, visitorCredential } from '../common/request-context.js';
+import {
+  correlationIdOf,
+  merchantCredential,
+  visitorCredential,
+} from '../common/request-context.js';
 import { MerchantAuthService } from '../identity/merchant-auth.service.js';
 import { ConsentService } from '../privacy/consent.service.js';
 import { VisitorSessionService } from '../sessions/visitor-session.service.js';
@@ -49,11 +54,28 @@ export class ConversationController {
 
   @Post('conversations')
   @Header('Cache-Control', 'private, no-store')
-  async createConversation(@Req() request: FastifyRequest) {
+  async createConversation(@Body() body: unknown, @Req() request: FastifyRequest) {
     const { tenant, session, consent } = await this.resolveVisitor(request);
     this.assertVisitorCsrf(request, tenant);
-    const conversation = await this.conversations.createConversation(tenant, session, consent);
+    const reuseActive =
+      body !== null &&
+      typeof body === 'object' &&
+      !Array.isArray(body) &&
+      (body as Record<string, unknown>).reuseActive === true;
+    const conversation = await this.conversations.createConversation(
+      tenant,
+      session,
+      consent,
+      { reuseActive },
+    );
     return { conversation };
+  }
+
+  @Get('conversations/active')
+  @Header('Cache-Control', 'private, no-store')
+  async getActiveConversation(@Req() request: FastifyRequest) {
+    const { tenant, session, consent } = await this.resolveVisitor(request);
+    return this.conversations.getActiveSessionConversation(tenant, session, consent);
   }
 
   @Get('conversations/:conversationId')
@@ -130,6 +152,37 @@ export class ConversationController {
     return { run };
   }
 
+  @Get('agent/runs/:runId/events')
+  async streamRunEvents(
+    @Param('runId') runId: string,
+    @Query('afterSeq') afterSeqQuery: string | undefined,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const idParsed = uuidParamSchema.safeParse(runId);
+    if (!idParsed.success) throw new BadRequestException('Invalid runId');
+    const { tenant, session, consent } = await this.resolveVisitor(request);
+    const lastEventId =
+      typeof request.headers['last-event-id'] === 'string'
+        ? request.headers['last-event-id']
+        : undefined;
+
+    const abortController = new AbortController();
+    request.raw.once('close', () => abortController.abort());
+
+    reply.hijack();
+    await this.conversations.streamRunAgUiEvents({
+      tenant,
+      session,
+      consent,
+      runId: idParsed.data,
+      lastEventId,
+      afterSeqQuery,
+      rawResponse: reply.raw,
+      abortSignal: abortController.signal,
+    });
+  }
+
   @Post('agent/runs/:runId/cancel')
   @Header('Cache-Control', 'private, no-store')
   async cancelRun(@Param('runId') runId: string, @Req() request: FastifyRequest) {
@@ -150,18 +203,50 @@ export class ConversationController {
   ) {
     const idParsed = uuidParamSchema.safeParse(runId);
     if (!idParsed.success) throw new BadRequestException('Invalid runId');
-    const { tenant, session, consent } = await this.resolveVisitor(request);
-    const publish = publishRaw === 'true';
-    if (publish) {
-      this.assertVisitorCsrf(request, tenant);
+    if (publishRaw !== undefined) {
+      throw new BadRequestException(
+        'MUTATING_GET_FORBIDDEN: Publishing run compositions requires POST /v1/agent/runs/:runId/publish',
+      );
     }
-    return this.conversations.getValidatedResult(
+    const { tenant, session, consent } = await this.resolveVisitor(request);
+    return this.conversations.getValidatedResult(tenant, session, consent, idParsed.data);
+  }
+
+  @Post('agent/runs/:runId/publish')
+  @Header('Cache-Control', 'private, no-store')
+  async publishRunComposition(
+    @Param('runId') runId: string,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+  ) {
+    const idParsed = uuidParamSchema.safeParse(runId);
+    if (!idParsed.success) throw new BadRequestException('Invalid runId');
+    const { tenant, session, consent } = await this.resolveVisitor(request);
+    this.assertVisitorCsrf(request, tenant);
+    const headerKey =
+      typeof request.headers['idempotency-key'] === 'string'
+        ? request.headers['idempotency-key']
+        : undefined;
+    return this.conversations.publishRunComposition(
       tenant,
       session,
       consent,
       idParsed.data,
-      publish,
+      body,
+      headerKey,
     );
+  }
+
+  @Post('agent/actions')
+  @Header('Cache-Control', 'private, no-store')
+  async executeControlledUiAction(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const { tenant, session, consent } = await this.resolveVisitor(request);
+    this.assertVisitorCsrf(request, tenant);
+    const headerKey =
+      typeof request.headers['idempotency-key'] === 'string'
+        ? request.headers['idempotency-key']
+        : undefined;
+    return this.conversations.executeUiAction(tenant, session, consent, body, headerKey);
   }
 
   // -------------------------------------------------------------------------

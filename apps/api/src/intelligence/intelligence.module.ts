@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import {
+  ConfinementAttestationRegistry,
   HatchetWorkflowDispatcher,
   HermesAgentAdapter,
   ProviderPolicyRegistry,
@@ -17,6 +18,7 @@ import { ConversationService } from './conversation.service.js';
 import { HermesBridgeController } from './hermes-bridge.controller.js';
 import {
   AGENT_PORT,
+  CONFINEMENT_ATTESTATION_REGISTRY,
   HERMES_BRIDGE_SECRET_TOKEN,
   PROVIDER_POLICY_REGISTRY,
   WORKFLOW_ORCHESTRATION_PORT,
@@ -37,8 +39,14 @@ import { ToolBrokerService } from './tool-broker.service.js';
     ToolBrokerService,
     ConversationService,
     {
+      provide: CONFINEMENT_ATTESTATION_REGISTRY,
+      useFactory: () => new ConfinementAttestationRegistry(),
+    },
+    {
       provide: AGENT_PORT,
-      useFactory: () => new HermesAgentAdapter(loadHermesAdapterConfig(process.env)),
+      inject: [CONFINEMENT_ATTESTATION_REGISTRY],
+      useFactory: (attestations: ConfinementAttestationRegistry) =>
+        new HermesAgentAdapter(loadHermesAdapterConfig(process.env), fetch, attestations),
     },
     {
       provide: PROVIDER_POLICY_REGISTRY,

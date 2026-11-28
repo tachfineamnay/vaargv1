@@ -1,57 +1,101 @@
 'use client';
 
-import { useCallback, useEffect, useSyncExternalStore, useState, type ReactElement } from 'react';
-import { adaptiveToSections } from '../lib/adaptive';
-import type { Section } from '../lib/composition';
-import { experienceSnapshot, experienceServerSnapshot, subscribeExperience, fetchExperienceComposition, resetExploration } from '../lib/experience-client';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+} from 'react';
+import {
+  compileCompositionToA2UiMessages,
+  type A2UiAgentToRendererMessage,
+} from '@vaarg/shared';
+import {
+  experienceServerSnapshot,
+  experienceSnapshot,
+  fetchExperienceA2Ui,
+  fetchExperienceComposition,
+  resetExploration,
+  subscribeExperience,
+} from '../lib/experience-client';
 import { t } from '../lib/i18n';
+import { A2UiSurfaceRenderer } from './A2UiSurfaceRenderer';
 import { useCompare } from './CompareProvider';
-import { SectionRenderer } from './SectionRenderer';
+import { useOptionalPersonalShopper } from './PersonalShopperProvider';
 import { useOptionalSession } from './SessionProvider';
 
 /**
- * Adaptive content boundary (FL05). The marker stays a semantic, testable
- * anchor; below it the client fetches the server composition once the
- * visitor session is active, validates it against the shared contract and
- * renders the mapped sections with stable keys. Stale revisions are
- * rejected (EXP-03 browser half). A visible action returns the visitor to
- * general exploration (server-side exploration reset). No permanent
- * loading screen: until data arrives only the conventional page shows.
+ * Adaptive content boundary (FL05/FL07). Below the semantic boundary marker,
+ * the client fetches the server-validated A2UI 1.0 adaptive composition bundle
+ * once the visitor session is active, validates it against the VAARG A2UI 1.0
+ * security/catalog schema, and renders grounded storefront primitives.
+ * Stale revisions are rejected monotonically (EXP-03).
  */
 export function AdaptiveSectionBoundary(): ReactElement {
   const session = useOptionalSession();
   const compare = useCompare();
-  const [sections, setSections] = useState<Section[]>([]);
+  const shopper = useOptionalPersonalShopper();
+  const [a2uiMessages, setA2UiMessages] = useState<A2UiAgentToRendererMessage[]>([]);
 
   const compareKey = compare.ids.join(',');
-  const experience = useSyncExternalStore(subscribeExperience, experienceSnapshot, experienceServerSnapshot);
+  const experience = useSyncExternalStore(
+    subscribeExperience,
+    experienceSnapshot,
+    experienceServerSnapshot,
+  );
+  const activeSessionId = session?.session?.sessionId ?? '';
 
   useEffect(() => {
-    if (session?.view !== 'active' || experience.sessionId !== session.session?.sessionId || experience.suspended) { setSections([]); return; }
+    if (
+      session?.view !== 'active' ||
+      !activeSessionId ||
+      experience.sessionId !== activeSessionId ||
+      experience.suspended
+    ) {
+      setA2UiMessages([]);
+      return;
+    }
+
     const controller = new AbortController();
     const ids = compareKey.split(',').filter((entry) => entry.length > 0);
     const compareIds = ids.length >= 2 ? ids : undefined;
+
     void (async () => {
-      const result = await fetchExperienceComposition(compareIds, controller.signal);
-      if (controller.signal.aborted || !result.ok) {
-        // Optional content: a failure or stale rejection leaves the
-        // conventional page untouched (no error wall, no loading screen).
+      const a2uiResult = await fetchExperienceA2Ui(compareIds, controller.signal);
+      if (controller.signal.aborted) return;
+
+      if (a2uiResult.ok && a2uiResult.data.messages.length > 0) {
+        setA2UiMessages(a2uiResult.data.messages);
         return;
       }
-      const mapped = adaptiveToSections(result.data.sections);
-      if (!controller.signal.aborted) setSections(mapped);
+
+      // Fallback for mocked composition-only environments: compile validated composition to A2UI 1.0
+      const compResult = await fetchExperienceComposition(compareIds, controller.signal);
+      if (controller.signal.aborted || !compResult.ok) {
+        return;
+      }
+      try {
+        const compiled = compileCompositionToA2UiMessages({
+          composition: compResult.data,
+          surfaceKind: 'adaptive',
+        });
+        if (!controller.signal.aborted) {
+          setA2UiMessages(compiled.messages);
+        }
+      } catch {
+        // Leave conventional page untouched on compilation error
+      }
     })();
+
     return () => {
       controller.abort();
     };
-  }, [session?.view, session?.session?.sessionId, compareKey, experience]);
+  }, [session?.view, activeSessionId, compareKey, experience]);
 
   const returnToGeneral = useCallback((): void => {
-    // Fire the server-side reset (ingests exploration_reset, bumps the
-    // context version) and drop adaptive content locally. Cart, scroll,
-    // focus and variants are untouched.
     void resetExploration();
-    setSections([]);
+    setA2UiMessages([]);
   }, []);
 
   return (
@@ -62,10 +106,18 @@ export function AdaptiveSectionBoundary(): ReactElement {
         data-testid="adaptive-boundary"
         aria-label={t('boundary.label')}
       />
-      {sections.map((section) => (
-        <SectionRenderer key={section.id} section={section} />
-      ))}
-      {sections.length > 0 ? (
+      {activeSessionId && a2uiMessages.length > 0 ? (
+        <div className="section section--adaptive-a2ui" data-testid="adaptive-a2ui-root">
+          <A2UiSurfaceRenderer
+            sessionId={activeSessionId}
+            messages={a2uiMessages}
+            {...(shopper
+              ? { onAction: (env) => void shopper.handleA2UiAction(env) }
+              : {})}
+          />
+        </div>
+      ) : null}
+      {a2uiMessages.length > 0 ? (
         <div className="section section--adaptive-actions" data-testid="adaptive-actions">
           <button type="button" className="btn btn--ghost" onClick={returnToGeneral}>
             {t('adaptive.returnToGeneral')}

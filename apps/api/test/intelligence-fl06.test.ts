@@ -47,6 +47,8 @@ const persistenceMocks = vi.hoisted(() => ({
   updateActionProposalResolution: vi.fn(),
   finalizeMasterRunAndAcceptMessage: vi.fn(),
   cancelAgentRunTree: vi.fn(),
+  markRunPublishedExperienceRevision: vi.fn(async () => undefined),
+  appendAgentRunStreamEvent: vi.fn(async () => null),
 }));
 
 vi.mock('@vaarg/persistence', async (original) => ({
@@ -78,6 +80,8 @@ vi.mock('@vaarg/persistence', async (original) => ({
   updateActionProposalResolution: persistenceMocks.updateActionProposalResolution,
   finalizeMasterRunAndAcceptMessage: persistenceMocks.finalizeMasterRunAndAcceptMessage,
   cancelAgentRunTree: persistenceMocks.cancelAgentRunTree,
+  markRunPublishedExperienceRevision: persistenceMocks.markRunPublishedExperienceRevision,
+  appendAgentRunStreamEvent: persistenceMocks.appendAgentRunStreamEvent,
 }));
 
 import { ToolBrokerService } from '../src/intelligence/tool-broker.service.js';
@@ -586,24 +590,62 @@ describe('FL06 API: ToolBrokerService, HermesBridgeController (HTTP+MCP), Conver
       }),
     );
 
-    // 1. Concurrent context advance (live contextVersion 5 !== run contextVersion 4) -> blocks proposal publish!
-    getContextSpy.mockResolvedValueOnce({
-      ...sampleContext,
-      contextVersion: 5,
+    // 0. GET getValidatedResult is strictly read-only and never reconciles or publishes!
+    persistenceMocks.getConversationWithBoundedHistory.mockResolvedValue({
+      conversation: {
+        conversationId,
+        storeId,
+        sessionId,
+        customerId: null,
+        hermesSessionId: 'hermes-s1',
+        status: 'active',
+        messageSeq: 1,
+        lastContextVersion: 4,
+        retentionExpiresAt: '2026-12-27T12:00:00.000Z',
+        createdAt: '2026-11-27T12:00:00.000Z',
+        updatedAt: '2026-11-27T12:00:00.000Z',
+        closedAt: null,
+      },
+      messages: [],
+      summary: null,
     });
-    await convService.getValidatedResult(tenant, activeSession, emptyConsentState(), runId, true);
+    await convService.getValidatedResult(tenant, activeSession, emptyConsentState(), runId);
     expect(tryPublishSpy).not.toHaveBeenCalled();
+    expect(persistenceMocks.finalizeMasterRunAndAcceptMessage).not.toHaveBeenCalled();
 
-    // 2. Matching contextVersion 4 -> publishes via CAS and updates proposal resolution to 'applied'!
-    getContextSpy.mockResolvedValueOnce(sampleContext);
-    tryPublishSpy.mockResolvedValueOnce(2);
-    const reconciled = await convService.getValidatedResult(
+    // 1. Concurrent context advance (live contextVersion 5 !== run contextVersion 4) -> blocks proposal publish and marks 'stale'!
+    getContextSpy
+      .mockResolvedValueOnce({ ...sampleContext, contextVersion: 5 })
+      .mockResolvedValueOnce({ ...sampleContext, contextVersion: 5 });
+    const staleRes = await convService.publishRunComposition(
       tenant,
       activeSession,
       emptyConsentState(),
       runId,
-      true,
+      {},
     );
+    expect(staleRes.published).toBe(false);
+    expect(tryPublishSpy).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateActionProposalResolution).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        proposalId,
+        status: 'stale',
+      }),
+    );
+
+    // 2. Matching contextVersion 4 -> publishes via explicit POST CAS and updates proposal resolution to 'applied'!
+    getContextSpy.mockResolvedValue(sampleContext);
+    tryPublishSpy.mockResolvedValueOnce(2);
+    const reconciled = await convService.publishRunComposition(
+      tenant,
+      activeSession,
+      emptyConsentState(),
+      runId,
+      {},
+    );
+    expect(reconciled.published).toBe(true);
+    expect(reconciled.experienceRevision).toBe(2);
     expect(tryPublishSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedContextVersion: 4,
@@ -617,7 +659,6 @@ describe('FL06 API: ToolBrokerService, HermesBridgeController (HTTP+MCP), Conver
         appliedExperienceRevision: 2,
       }),
     );
-    expect(reconciled.assistantMessage?.structuredPayload.experienceRevision).toBe(2);
   });
 
   it('enforces merchant owner/marketing authorization and signed delegation on operator catalog-sync workflow trigger', async () => {
