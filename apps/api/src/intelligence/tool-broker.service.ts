@@ -69,7 +69,9 @@ export class ToolBrokerService {
   private resolveBindingForStore(storeId: string): StorefrontBinding {
     const binding = this.bindings.find((entry) => entry.storeId === storeId);
     if (!binding) {
-      throw AppError.unavailable(`STOREFRONT_BINDING_MISSING: No verified binding for store ${storeId}`);
+      throw AppError.unavailable(
+        `STOREFRONT_BINDING_MISSING: No verified binding for store ${storeId}`,
+      );
     }
     return binding;
   }
@@ -102,8 +104,7 @@ export class ToolBrokerService {
 
     // 2. Explicitly refuse FL08-FL11 capabilities with structured unavailability
     if (ctx.capability in UNAVAILABLE_FUTURE_CAPABILITIES) {
-      const info =
-        UNAVAILABLE_FUTURE_CAPABILITIES[ctx.capability as UnavailableFutureCapability];
+      const info = UNAVAILABLE_FUTURE_CAPABILITIES[ctx.capability as UnavailableFutureCapability];
       const msg = `CAPABILITY_UNAVAILABLE (${info.implementedIn}): ${info.reason}`;
       await recordDeniedToolInvocation(pool, {
         storeId: ctx.storeId,
@@ -246,6 +247,10 @@ export class ToolBrokerService {
       return auditStart.cachedOutput;
     }
 
+    if (auditStart.kind === 'budget_exceeded') {
+      throw AppError.forbidden(auditStart.reason);
+    }
+
     const invocationId = auditStart.invocationId;
     try {
       const binding = this.resolveBindingForStore(ctx.storeId);
@@ -373,7 +378,12 @@ export class ToolBrokerService {
 
       case 'get_related_products': {
         const input = data as BrokerGetRelatedProductsInput;
-        return getRelatedProducts(pool, marketScope, refStringFromLookup(input.product), input.limit);
+        return getRelatedProducts(
+          pool,
+          marketScope,
+          refStringFromLookup(input.product),
+          input.limit,
+        );
       }
 
       case 'get_experience_context': {

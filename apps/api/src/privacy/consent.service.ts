@@ -29,6 +29,9 @@ import {
   recordAudit,
   recordConsent,
   withStoreContext,
+  getAnonymousConsentState,
+  recordAnonymousConsent,
+  anonymousConsentPurposeSchema,
   type Purpose,
 } from '@vaarg/persistence';
 import { ValkeyClient } from '../infra/valkey-client.js';
@@ -74,8 +77,25 @@ export class ConsentService {
       const consents = await this.readState(tenant.storeId, customerId);
       return { customerId, consents };
     }
-    // Anonymous or unlinked visitors see an undecided state; no rows are read
-    // or written without a verified customer identity.
+    // FIX07: anonymous visitor session (no linked customer) — read the
+    // session-scoped anonymous consent state, never a synthetic customer.
+    if (actor.kind === 'visitor') {
+      const state = await getAnonymousConsentState(this.database.getPool(), {
+        storeId: tenant.storeId,
+        sessionId: actor.session.sessionId,
+      });
+      return {
+        customerId: null,
+        consents: {
+          analytics: state.analytics,
+          marketing_email: null,
+          marketing_push: null,
+          personalization: state.personalization,
+          data_retention: null,
+        },
+      };
+    }
+    // No session at all: undecided state; no rows are read or written.
     return { customerId: null, consents: emptyConsentState() };
   }
 
@@ -104,7 +124,54 @@ export class ConsentService {
       source = 'user_action';
       actorRef = `visitor:${actor.session.sessionId}`;
     } else if (actor.kind === 'visitor') {
-      throw new ForbiddenException('Verified customer identity required');
+      // FIX07: anonymous visitor session — session-scoped anonymous consent
+      // only supports analytics + personalization (no customer identity).
+      const purposeParsed = anonymousConsentPurposeSchema.safeParse(body.purpose);
+      if (!purposeParsed.success) {
+        throw new BadRequestException(
+          'Anonymous consent supports analytics and personalization only',
+        );
+      }
+      const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      await recordAnonymousConsent(this.database.getPool(), {
+        storeId: tenant.storeId,
+        sessionId: actor.session.sessionId,
+        purpose: purposeParsed.data,
+        granted: body.granted,
+        source: 'user_action',
+        ...(body.note !== undefined ? { note: body.note } : {}),
+        expiresAt,
+      });
+      await withStoreContext(createDb(this.database.getPool()), tenant.storeId, (tx) =>
+        recordAudit(
+          tx,
+          tenant.storeId,
+          `visitor:${actor.session.sessionId}`,
+          'consent.updated',
+          'session',
+          actor.session.sessionId,
+          { purpose: purposeParsed.data, granted: body.granted, source: 'user_action' },
+        ),
+      );
+      if (purposeParsed.data === 'personalization' && !body.granted) {
+        await this.valkey
+          .getClient()
+          .del(experienceCacheKey(tenant.storeId, actor.session.sessionId));
+      }
+      const state = await getAnonymousConsentState(this.database.getPool(), {
+        storeId: tenant.storeId,
+        sessionId: actor.session.sessionId,
+      });
+      return {
+        customerId: null,
+        consents: {
+          analytics: state.analytics,
+          marketing_email: null,
+          marketing_push: null,
+          personalization: state.personalization,
+          data_retention: null,
+        },
+      };
     } else {
       throw new UnauthorizedException();
     }

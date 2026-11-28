@@ -69,7 +69,9 @@ _LOCK = threading.Lock()
 _SESSION_TICKETS: dict[str, str] = {}
 _SESSION_POLICIES: dict[str, tuple[str, str]] = {}
 _PENDING_RESERVATIONS: dict[str, str] = {}
+_SESSION_PROVIDER_CALL_IDS: dict[str, str] = {}
 _LAST_ATTESTATION_TS: float = 0.0
+_LAST_RECONCILE_ERROR: str = ""
 
 VAARG_CAPABILITY_SPECS: list[tuple[str, str, dict[str, Any]]] = [
     (
@@ -329,34 +331,48 @@ def _on_pre_api_request(event: dict[str, Any]) -> dict[str, Any] | None:
         }
     provider, model = resolved
 
+    # FIX04: echo VAARG's stable provider-call id so the reservation dedupes
+    # to ONE reservation per logical provider call (no double reservation).
+    headers = (event.get("headers") or {})
+    provider_call_id = (
+        headers.get("X-Vaarg-Provider-Call-Id")
+        or headers.get("x-vaarg-provider-call-id")
+        or ""
+    ).strip()
+
+    reserve_payload: dict[str, Any] = {
+        "bridgeTicket": ticket,
+        "hermesSessionId": session_id,
+        "provider": provider,
+        "model": model,
+        "estimatedInputTokens": int(event.get("estimated_input_tokens") or 2048),
+        "maxOutputTokens": int(event.get("max_tokens") or 2048),
+    }
+    if provider_call_id:
+        reserve_payload["providerCallId"] = provider_call_id
+
     try:
-        res = _bridge_post(
-            "/internal/v1/hermes-bridge/guard/llm-reserve",
-            {
-                "bridgeTicket": ticket,
-                "hermesSessionId": session_id,
-                "provider": provider,
-                "model": model,
-                "estimatedInputTokens": int(event.get("estimated_input_tokens") or 2048),
-                "maxOutputTokens": int(event.get("max_tokens") or 2048),
-            },
-        )
+        res = _bridge_post("/internal/v1/hermes-bridge/guard/llm-reserve", reserve_payload)
         reservation_id = str(res.get("reservationId") or "")
         with _LOCK:
             _SESSION_POLICIES[session_id] = (provider, model)
             if reservation_id:
                 _PENDING_RESERVATIONS[session_id] = reservation_id
+            if provider_call_id:
+                _SESSION_PROVIDER_CALL_IDS[session_id] = provider_call_id
         return None
     except Exception as exc:
         return {"action": "block", "message": str(exc)}
 
 
 def _on_post_api_request(event: dict[str, Any]) -> None:
+    global _LAST_RECONCILE_ERROR
     session_id = str(event.get("session_id") or "")
     with _LOCK:
         ticket = _SESSION_TICKETS.get(session_id, "")
         session_policy = _SESSION_POLICIES.get(session_id)
         reservation_id = _PENDING_RESERVATIONS.pop(session_id, "")
+        provider_call_id = _SESSION_PROVIDER_CALL_IDS.pop(session_id, "")
     if not ticket or not reservation_id:
         return
 
@@ -365,23 +381,34 @@ def _on_post_api_request(event: dict[str, Any]) -> None:
         return
     provider, model = resolved
     usage = event.get("usage") or {}
-    try:
-        _bridge_post(
-            "/internal/v1/hermes-bridge/guard/llm-reconcile",
-            {
-                "bridgeTicket": ticket,
-                "reservationId": reservation_id,
-                "hermesSessionId": session_id,
-                "provider": provider,
-                "model": model,
-                "inputTokens": int(usage.get("input_tokens") or 0),
-                "outputTokens": int(usage.get("output_tokens") or 0),
-                "cacheReadTokens": int(usage.get("cache_read_tokens") or 0),
-                "cacheWriteTokens": int(usage.get("cache_write_tokens") or 0),
-            },
-        )
-    except Exception:
-        pass
+    payload: dict[str, Any] = {
+        "bridgeTicket": ticket,
+        "reservationId": reservation_id,
+        "hermesSessionId": session_id,
+        "provider": provider,
+        "model": model,
+        "inputTokens": int(usage.get("input_tokens") or 0),
+        "outputTokens": int(usage.get("output_tokens") or 0),
+        "cacheReadTokens": int(usage.get("cache_read_tokens") or 0),
+        "cacheWriteTokens": int(usage.get("cache_write_tokens") or 0),
+    }
+    if provider_call_id:
+        payload["providerCallId"] = provider_call_id
+
+    # FIX04: bounded reconciliation retries with redacted operational evidence.
+    # Reconciliation is idempotent server-side, so a bounded retry is safe and
+    # does not duplicate accounting. We never silently drop the failure.
+    last_error = ""
+    for _attempt in range(3):
+        try:
+            _bridge_post("/internal/v1/hermes-bridge/guard/llm-reconcile", payload, timeout=10.0)
+            _LAST_RECONCILE_ERROR = ""
+            return
+        except Exception as exc:
+            last_error = str(exc)
+            if _attempt < 2:
+                time.sleep(min(2.0, 0.25 * (2 ** _attempt)))
+    _LAST_RECONCILE_ERROR = last_error[:200]
 
 
 def _on_subagent_start(event: dict[str, Any]) -> dict[str, Any] | None:
