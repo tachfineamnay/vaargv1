@@ -23,6 +23,9 @@ import {
   issueRunBridgeTicket,
   signRuntimeAttestationPayload,
 } from '@vaarg/persistence';
+import type { AbuseLimitService } from '../src/infra/abuse-limit.service.js';
+
+const abuseLimitStub = { enforce: vi.fn(async () => undefined) } as unknown as AbuseLimitService;
 
 const persistenceMocks = vi.hoisted(() => ({
   getOwnedAgentRun: vi.fn(),
@@ -338,6 +341,7 @@ describe('FL07 API — Non-Mutating GET, Confinement Attestation, Non-Gemini Del
       agentPortMock,
       ProviderPolicyRegistry.fromEnv({}),
       BRIDGE_SECRET,
+      abuseLimitStub,
     );
 
     persistenceMocks.getOwnedAgentRun.mockResolvedValue(baseRun);
@@ -438,6 +442,7 @@ describe('FL07 API — Non-Mutating GET, Confinement Attestation, Non-Gemini Del
       { runtimeCapabilities: vi.fn() } as unknown as AgentPort,
       ProviderPolicyRegistry.fromEnv({}),
       BRIDGE_SECRET,
+      abuseLimitStub,
     );
 
     const ownedSurface = buildVaargSurfaceId(sessionId, 'shopper', conversationId);

@@ -94,6 +94,7 @@ import type { ConsentService } from '../src/privacy/consent.service.js';
 import type { VisitorSessionService } from '../src/sessions/visitor-session.service.js';
 import type { TenantContextResolver } from '../src/tenant/tenant-context.resolver.js';
 import type { MerchantAuthService } from '../src/identity/merchant-auth.service.js';
+import type { AbuseLimitService } from '../src/infra/abuse-limit.service.js';
 
 const BRIDGE_SECRET = 'synthetic-hermes-bridge-secret-minimum-32-chars!!';
 const CATALOG_SECRET = 'synthetic-catalog-signing-secret-min-32-bytes!!';
@@ -534,6 +535,7 @@ describe('FL06 API: ToolBrokerService, HermesBridgeController (HTTP+MCP), Conver
       agentPort,
       policyRegistry,
       BRIDGE_SECRET,
+      { enforce: vi.fn(async () => undefined) } as unknown as AbuseLimitService,
     );
 
     persistenceMocks.getOwnedAgentRun.mockResolvedValue(baseRun);

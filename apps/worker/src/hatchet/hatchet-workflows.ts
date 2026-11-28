@@ -29,6 +29,7 @@ import {
   createDb,
   createGeminiEmbeddingPort,
   executeCatalogStep,
+  getCatalogGeneration,
   loadGeminiEmbeddingConfig,
   markWorkflowLifecycleStatus,
   purgeExpiredExperience,
@@ -59,6 +60,11 @@ export interface HatchetWorkflowRuntimeDeps {
     signal: AbortSignal | undefined,
   ) => Promise<{ status: string; completedAt: Date | null }>;
   workflowOrchestration?: WorkflowOrchestrationPort;
+  /** Override for reading the current catalog generation (test seam). */
+  readCatalogGeneration?: (
+    pool: Pool,
+    raw: { storeId: string; country: string; language: string },
+  ) => Promise<string | null>;
 }
 
 export interface WorkflowTaskExecutionContext {
@@ -141,6 +147,25 @@ export async function runCatalogSyncWorkflowHandler(
     await runPage(binding, 'start', execCtx.signal);
   }
 
+  // Bind this run to the original catalog generation. A root sweep captures
+  // the generation it started; a continuation must verify it still matches
+  // so an intervening new sweep cannot silently redirect it.
+  const readGeneration =
+    deps.readCatalogGeneration ??
+    ((pool: Pool, raw: { storeId: string; country: string; language: string }) =>
+      getCatalogGeneration(pool, raw));
+  const rawGeneration = await readGeneration(deps.pool, {
+    storeId: input.storeId,
+    country: input.country,
+    language: input.language,
+  }).catch(() => null);
+  if (input.generation && rawGeneration !== input.generation) {
+    throw new NonRetryableError(
+      'CATALOG_GENERATION_MISMATCH: Continuation is bound to an original generation that a newer sweep has superseded',
+    );
+  }
+  const boundGeneration = input.generation ?? rawGeneration;
+
   let pagesProcessed = 0;
   let finalSyncStatus = 'in_progress';
   let completedAt: Date | null = null;
@@ -163,11 +188,15 @@ export async function runCatalogSyncWorkflowHandler(
   let continuationDispatched = false;
   let nextExecutionId: string | null = null;
 
+  // Explicit authorization-expiry handling: an expired delegation ticket
+  // cannot authorize another continuation. Surface it instead of silently
+  // stopping with an ambiguous in_progress status.
+  const authorizationExpired = claims.expiresAt <= Date.now() + 30_000;
   if (
     finalSyncStatus !== 'complete' &&
     deps.workflowOrchestration &&
     input.continuationIndex < input.maxContinuations &&
-    claims.expiresAt > Date.now() + 30_000
+    !authorizationExpired
   ) {
     const rootKey = input.idempotencyKey.replace(/:cont:\d+$/, '');
     const nextIndex = input.continuationIndex + 1;
@@ -184,12 +213,18 @@ export async function runCatalogSyncWorkflowHandler(
       correlationId: input.correlationId,
       concurrencyKey: input.concurrencyKey,
       initiateNewSweep: false,
+      // Bind the continuation to the original generation.
+      generation: boundGeneration ?? undefined,
       maxPages: input.maxPages,
       continuationIndex: nextIndex,
       maxContinuations: input.maxContinuations,
     });
     continuationDispatched = true;
     nextExecutionId = nextExec.executionId;
+  } else if (finalSyncStatus !== 'complete' && authorizationExpired) {
+    // Preserve the root completion state: the run stopped because the
+    // authorization expired, not because the sync completed.
+    finalSyncStatus = 'authorization_expired';
   }
 
   const output = catalogSyncWorkflowOutputSchema.parse({
@@ -201,11 +236,23 @@ export async function runCatalogSyncWorkflowHandler(
     nextExecutionId,
   });
 
+  // Preserve the root workflow completion state: a run that stopped because
+  // its authorization expired is recorded explicitly, never as a false
+  // completion or a silent in_progress.
+  const rootLifecycleStatus =
+    finalSyncStatus === 'complete'
+      ? 'completed'
+      : finalSyncStatus === 'authorization_expired'
+        ? 'authorization_expired'
+        : continuationDispatched
+          ? 'continuation_required'
+          : 'running';
+
   if (execCtx.workflowRunId) {
     await markWorkflowLifecycleStatus(deps.pool, {
       storeId: input.storeId,
       hatchetWorkflowRunId: execCtx.workflowRunId,
-      status: finalSyncStatus === 'complete' ? 'completed' : 'continuation_required',
+      status: rootLifecycleStatus,
       resultSummary: output as unknown as Record<string, unknown>,
     }).catch(() => null);
   }

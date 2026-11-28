@@ -18,6 +18,7 @@ import {
 } from '@vaarg/persistence';
 import { DatabaseClient } from '../infra/database-client.js';
 import { ValkeyClient } from '../infra/valkey-client.js';
+import { AbuseLimitService } from '../infra/abuse-limit.service.js';
 
 export interface IssuedVisitorSession {
   session: VisitorSession;
@@ -42,6 +43,7 @@ export class VisitorSessionService {
   constructor(
     @Inject(DatabaseClient) private readonly database: DatabaseClient,
     @Inject(ValkeyClient) private readonly valkey: ValkeyClient,
+    @Inject(AbuseLimitService) private readonly abuseLimit: AbuseLimitService,
   ) {}
 
   /** Create an anonymous store-scoped session and cache it write-through. */
@@ -51,6 +53,8 @@ export class VisitorSessionService {
   ): Promise<IssuedVisitorSession> {
     const ttlMs = input.ttlSeconds ? input.ttlSeconds * 1000 : SESSION_TTL_MS;
     const context = input.context ?? 'default';
+    // FL07-FIX: distributed abuse enforcement before creating a session.
+    await this.abuseLimit.enforce(tenant.storeId, 'anonymous_session', null);
     const record = await withStoreContext(
       createDb(this.database.getPool()),
       tenant.storeId,

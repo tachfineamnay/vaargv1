@@ -55,6 +55,7 @@ import {
 import { TenantContextResolver } from '../tenant/tenant-context.resolver.js';
 import { DatabaseClient } from '../infra/database-client.js';
 import { ValkeyClient } from '../infra/valkey-client.js';
+import { AbuseLimitService } from '../infra/abuse-limit.service.js';
 import { ConsentService } from '../privacy/consent.service.js';
 import { VisitorSessionService } from '../sessions/visitor-session.service.js';
 
@@ -101,6 +102,7 @@ export class ExperienceService {
     @Inject(ConsentService) private readonly consents: ConsentService,
     @Inject(TenantContextResolver) private readonly tenants: TenantContextResolver,
     @Inject('STOREFRONT_BINDINGS') private readonly bindings: StorefrontBinding[],
+    @Inject(AbuseLimitService) private readonly abuseLimit: AbuseLimitService,
   ) {
     // Provider-independent ports over PostgreSQL. The Gemini adapter reports
     // NOT_CONFIGURED without an operator key — never a fake vector path.
@@ -405,6 +407,9 @@ export class ExperienceService {
     // durable provider admission ledger so an unconfigured/unauthorized/
     // expired provider allocation fails closed instead of silently degrading.
     if (query.mode === 'hybrid') {
+      // FL07-FIX: paid retrieval enforces distributed abuse limits (aggregate
+      // store cap) and fails closed if enforcement is unavailable.
+      await this.abuseLimit.enforce(tenant.storeId, 'public_retrieval', null);
       const embeddingIdentity = this.embedding.identity();
       if (!embeddingIdentity) {
         // No provider configured: hybrid degrades to the lexical channel

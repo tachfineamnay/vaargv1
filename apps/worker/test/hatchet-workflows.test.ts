@@ -280,6 +280,167 @@ describe('FL06 Worker: Hatchet SDK workflow declarations, auth revalidation, bou
     ).rejects.toThrow(/CANCELLED/);
   });
 
+  it('binds catalog continuations to the original generation and handles authorization expiry explicitly', async () => {
+    // --- Generation binding: a continuation whose original generation has been
+    // superseded by a new sweep must be rejected, not silently redirected.
+    const staleTicket = issueCatalogDelegation(
+      {
+        host: binding.host,
+        storeId,
+        merchantUserId,
+        sessionId: merchantSessionId,
+        jobId: randomUUID(),
+        action: 'start',
+        expiresAt: Date.now() + 600_000,
+      },
+      SECRET,
+    );
+
+    await expect(
+      runCatalogSyncWorkflowHandler(
+        {
+          pool: fakePool,
+          env: {},
+          bindings: [binding],
+          delegationSecret: SECRET,
+          rateClient: undefined,
+          authorizeMerchant: async () => ({ storeId, role: 'owner' }),
+          executeCatalogPage: async () => ({ status: 'products', completedAt: null }),
+          readCatalogGeneration: async () => '11111111-1111-4111-8111-111111111111',
+        },
+        {
+          storeId,
+          country: 'FR',
+          language: 'FR',
+          currency: 'EUR',
+          shopifyDomain: binding.shopifyDomain,
+          tokenEnv: binding.tokenEnv,
+          delegationTicket: staleTicket,
+          idempotencyKey: 'sync-gen-mismatch',
+          correlationId: 'corr-gen',
+          concurrencyKey: `store:${storeId}:market:FR:FR`,
+          initiateNewSweep: false,
+          maxPages: 2,
+          generation: '22222222-2222-4222-8222-222222222222',
+        },
+      ),
+    ).rejects.toThrow(/CATALOG_GENERATION_MISMATCH/);
+
+    // --- Continuation carries the bound generation forward.
+    const dispatchedGenerations: Array<Record<string, unknown>> = [];
+    await runCatalogSyncWorkflowHandler(
+      {
+        pool: fakePool,
+        env: {},
+        bindings: [binding],
+        delegationSecret: SECRET,
+        rateClient: undefined,
+        authorizeMerchant: async () => ({ storeId, role: 'owner' }),
+        executeCatalogPage: async () => ({ status: 'products', completedAt: null }),
+        readCatalogGeneration: async () => '33333333-3333-4333-8333-333333333333',
+        workflowOrchestration: {
+          readiness: () => ({ status: 'READY', detail: 'ok' }),
+          submitWorkflow: vi.fn(async (_name, nextInput) => {
+            dispatchedGenerations.push(nextInput as unknown as Record<string, unknown>);
+            return {
+              executionId: '00000000-0000-4000-8000-000000000098',
+              storeId,
+              workflowName: 'vaarg.catalog.sync',
+              idempotencyKey: nextInput.idempotencyKey,
+              correlationId: nextInput.correlationId,
+              concurrencyKey: nextInput.concurrencyKey,
+              hatchetWorkflowRunId: 'hatchet-cont-gen',
+              outboxEventId: null,
+              status: 'submitted',
+              payloadHash: 'hash',
+              attempts: 1,
+              lastError: null,
+              submittedAt: '2026-11-27T12:06:00.000Z',
+              startedAt: null,
+              completedAt: null,
+              createdAt: '2026-11-27T12:06:00.000Z',
+              updatedAt: '2026-11-27T12:06:00.000Z',
+            };
+          }),
+          getWorkflowExecution: vi.fn(),
+          cancelWorkflowExecution: vi.fn(),
+        },
+      },
+      {
+        storeId,
+        country: 'FR',
+        language: 'FR',
+        currency: 'EUR',
+        shopifyDomain: binding.shopifyDomain,
+        tokenEnv: binding.tokenEnv,
+        delegationTicket: staleTicket,
+        idempotencyKey: 'sync-gen-cont',
+        correlationId: 'corr-gen-2',
+        concurrencyKey: `store:${storeId}:market:FR:FR`,
+        initiateNewSweep: false,
+        maxPages: 2,
+        continuationIndex: 0,
+        maxContinuations: 3,
+        generation: '33333333-3333-4333-8333-333333333333',
+      },
+    );
+    expect(dispatchedGenerations[0]).toMatchObject({
+      generation: '33333333-3333-4333-8333-333333333333',
+    });
+
+    // --- Explicit expired-authorization: a ticket valid at start but expiring
+    // before the continuation budget is exhausted stops the run and is
+    // recorded as `authorization_expired`, never a false completion.
+    const expiringTicket = issueCatalogDelegation(
+      {
+        host: binding.host,
+        storeId,
+        merchantUserId,
+        sessionId: merchantSessionId,
+        jobId: randomUUID(),
+        action: 'start',
+        expiresAt: Date.now() + 5_000, // valid now, expires within the continuation window
+      },
+      SECRET,
+    );
+    const expiredOut = await runCatalogSyncWorkflowHandler(
+      {
+        pool: fakePool,
+        env: {},
+        bindings: [binding],
+        delegationSecret: SECRET,
+        rateClient: undefined,
+        authorizeMerchant: async () => ({ storeId, role: 'owner' }),
+        executeCatalogPage: async () => ({ status: 'products', completedAt: null }),
+        workflowOrchestration: {
+          readiness: () => ({ status: 'READY', detail: 'ok' }),
+          submitWorkflow: vi.fn(),
+          getWorkflowExecution: vi.fn(),
+          cancelWorkflowExecution: vi.fn(),
+        },
+      },
+      {
+        storeId,
+        country: 'FR',
+        language: 'FR',
+        currency: 'EUR',
+        shopifyDomain: binding.shopifyDomain,
+        tokenEnv: binding.tokenEnv,
+        delegationTicket: expiringTicket,
+        idempotencyKey: 'sync-expired',
+        correlationId: 'corr-expired',
+        concurrencyKey: `store:${storeId}:market:FR:FR`,
+        initiateNewSweep: false,
+        maxPages: 2,
+        continuationIndex: 0,
+        maxContinuations: 3,
+      },
+    );
+    expect(expiredOut.continuationDispatched).toBe(false);
+    expect(expiredOut.finalSyncStatus).toBe('authorization_expired');
+    expect(expiredOut.status).toBe('CONTINUATION_REQUIRED');
+  });
+
   it('reports NOT_CONFIGURED cleanly for embedding refresh when GEMINI_API_KEY is absent', async () => {
     const out = await runEmbeddingRefreshWorkflowHandler(
       {
