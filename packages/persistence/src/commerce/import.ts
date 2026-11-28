@@ -132,3 +132,22 @@ export async function readCatalogProjection(pool: Pool, raw: ImportInput, query:
     return catalogResponseSchema.parse({ status, completedAt: state.completed_at?.toISOString() ?? null, items: page.map(row => ({ kind: options.kind, data: row.payload })), nextCursor: rows.length > options.limit ? page.at(-1)?.shopify_id ?? null : null });
   });
 }
+
+/**
+ * Read the current catalog generation for a store/market. Used to bind
+ * catalog sync continuations to the original generation so an intervening
+ * new sweep cannot silently redirect a continuation.
+ */
+export async function getCatalogGeneration(
+  pool: Pool,
+  raw: ImportInput,
+): Promise<string | null> {
+  const input = inputSchema.parse(raw);
+  return scoped(pool, input, async (client) => {
+    const { rows } = await client.query<{ generation: string }>(
+      'SELECT generation FROM catalog_imports WHERE store_id=$1 AND country=$2 AND language=$3',
+      [input.storeId, input.country, input.language],
+    );
+    return rows[0]?.generation ?? null;
+  });
+}

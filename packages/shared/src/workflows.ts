@@ -64,6 +64,8 @@ export const catalogSyncWorkflowInputSchema = z
     tokenEnv: z.string().min(1).max(120),
     delegationTicket: z.string().min(16).max(4_096),
     initiateNewSweep: z.boolean().default(false),
+    /** Original catalog generation this run/continuation is bound to. */
+    generation: z.string().uuid().optional(),
     maxPages: z.number().int().min(1).max(250).default(50),
     continuationIndex: z.number().int().min(0).max(50).default(0),
     maxContinuations: z.number().int().min(0).max(50).default(10),

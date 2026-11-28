@@ -80,6 +80,7 @@ import {
 } from '@vaarg/persistence';
 import { ExperienceService } from '../experience/experience.service.js';
 import { DatabaseClient } from '../infra/database-client.js';
+import { AbuseLimitService } from '../infra/abuse-limit.service.js';
 import {
   AGENT_PORT,
   HERMES_BRIDGE_SECRET_TOKEN,
@@ -147,6 +148,7 @@ export class ConversationService {
     @Inject(AGENT_PORT) private readonly agentPort: AgentPort,
     @Inject(PROVIDER_POLICY_REGISTRY) private readonly providerPolicies: ProviderPolicyRegistry,
     @Inject(HERMES_BRIDGE_SECRET_TOKEN) private readonly bridgeSecret: string | undefined,
+    @Inject(AbuseLimitService) private readonly abuseLimit: AbuseLimitService,
   ) {
     this.runEventBus.setMaxListeners(200);
   }
@@ -172,6 +174,8 @@ export class ConversationService {
         return existing;
       }
     }
+    // FL07-FIX: distributed abuse enforcement before a new conversation is created.
+    await this.abuseLimit.enforce(tenant.storeId, 'conversation_create', session.sessionId);
     const context = await this.experience.getContext(tenant, session, consent);
     return createConversationRecord(pool, {
       storeId: tenant.storeId,
@@ -334,6 +338,9 @@ export class ConversationService {
     }
     const input = parsed.data;
     const idempotencyKey = input.idempotencyKey ?? headerIdempotencyKey;
+
+    // FL07-FIX: distributed abuse enforcement before an agent run is created.
+    await this.abuseLimit.enforce(tenant.storeId, 'run_create', session.sessionId);
 
     let triggerMessageId = input.triggerMessageId ?? null;
     if (input.message) {

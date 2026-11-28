@@ -7,6 +7,7 @@ import type { ValkeyClient } from '../src/infra/valkey-client.js';
 import type { ConsentService } from '../src/privacy/consent.service.js';
 import type { VisitorSessionService } from '../src/sessions/visitor-session.service.js';
 import type { TenantContextResolver } from '../src/tenant/tenant-context.resolver.js';
+import type { AbuseLimitService } from '../src/infra/abuse-limit.service.js';
 
 const mocks = vi.hoisted(() => ({ load: vi.fn(), ingest: vi.fn(), search: vi.fn(), recommend: vi.fn(), compose: vi.fn(), summaries: vi.fn() }));
 vi.mock('@vaarg/persistence', async original => ({
@@ -37,7 +38,8 @@ function setup() {
   const valkey = { getClient: () => ({ del: vi.fn(), eval: vi.fn() }) } as unknown as ValkeyClient;
   const consentGet = vi.fn(async () => ({ customerId: null, consents: emptyConsentState() }));
   const resolve = vi.fn(async () => ({ ...binding, storeStatus: 'active', correlationId: 'synthetic-request' }));
-  const service = new ExperienceService(database, valkey, { current: vi.fn(async () => ({ sessionId, storeId, status: 'active', customerId: null })) } as unknown as VisitorSessionService, { get: consentGet } as unknown as ConsentService, { resolve } as unknown as TenantContextResolver, [binding]);
+  const abuseLimit = { enforce: vi.fn(async () => undefined) } as unknown as AbuseLimitService;
+  const service = new ExperienceService(database, valkey, { current: vi.fn(async () => ({ sessionId, storeId, status: 'active', customerId: null })) } as unknown as VisitorSessionService, { get: consentGet } as unknown as ConsentService, { resolve } as unknown as TenantContextResolver, [binding], abuseLimit);
   return { service, query, consentGet, resolve };
 }
 beforeEach(() => {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseClient } from './database-client.js';
 import { ValkeyClient } from './valkey-client.js';
+import { AbuseLimitService } from './abuse-limit.service.js';
 import { loadApiConfiguration, type ApiConfiguration } from './config.js';
 
 /**
@@ -30,7 +31,8 @@ import { loadApiConfiguration, type ApiConfiguration } from './config.js';
         new ValkeyClient(configuration.valkey.url, configuration.valkey.keyPrefix),
       inject: ['API_CONFIGURATION'],
     },
+    AbuseLimitService,
   ],
-  exports: ['STOREFRONT_BINDINGS', 'API_CONFIGURATION', DatabaseClient, ValkeyClient],
+  exports: ['STOREFRONT_BINDINGS', 'API_CONFIGURATION', DatabaseClient, ValkeyClient, AbuseLimitService],
 })
 export class InfraModule {}

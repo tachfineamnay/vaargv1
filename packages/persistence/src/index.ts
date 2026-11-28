@@ -38,6 +38,7 @@ export * from './embeddings/embedding-job.js';
 export * from './experience/experience-context.js';
 export * from './intelligence/bridge-ticket.js';
 export * from './intelligence/proposal-publication.js';
+export * from './intelligence/abuse-limit.js';
 export * from './intelligence/provider-admission.js';
 export * from './intelligence/provider-policy.js';
 export * from './intelligence/hermes-adapter.js';

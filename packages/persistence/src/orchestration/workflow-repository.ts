@@ -244,7 +244,13 @@ export async function markWorkflowLifecycleStatus(
     storeId: string;
     executionId?: string;
     hatchetWorkflowRunId?: string;
-    status: 'running' | 'continuation_required' | 'completed' | 'failed' | 'cancelled';
+    status:
+      | 'running'
+      | 'continuation_required'
+      | 'completed'
+      | 'failed'
+      | 'cancelled'
+      | 'authorization_expired';
     resultSummary?: Record<string, unknown>;
     errorMessage?: string;
   },
@@ -260,7 +266,8 @@ export async function markWorkflowLifecycleStatus(
       params.status === 'continuation_required' ||
       params.status === 'completed' ||
       params.status === 'failed' ||
-      params.status === 'cancelled';
+      params.status === 'cancelled' ||
+      params.status === 'authorization_expired';
 
     const { rows } = await client.query(
       `UPDATE workflow_executions

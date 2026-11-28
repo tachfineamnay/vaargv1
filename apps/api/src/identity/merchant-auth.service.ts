@@ -1,14 +1,11 @@
 import {
   BadRequestException,
   ForbiddenException,
-  HttpException,
   Inject,
   Injectable,
   NotFoundException,
-  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import {
   merchantLoginV1RequestSchema,
   merchantRoleSchema,
@@ -25,7 +22,7 @@ import {
   withStoreContext,
 } from '@vaarg/persistence';
 import { DatabaseClient } from '../infra/database-client.js';
-import { ValkeyClient } from '../infra/valkey-client.js';
+import { AbuseLimitService } from '../infra/abuse-limit.service.js';
 import { TenantContextResolver } from '../tenant/tenant-context.resolver.js';
 
 export interface MerchantLoginResult {
@@ -48,7 +45,7 @@ export class MerchantAuthService {
   constructor(
     @Inject(DatabaseClient) private readonly database: DatabaseClient,
     @Inject('STOREFRONT_BINDINGS') bindings: StorefrontBinding[],
-    @Inject(ValkeyClient) private readonly valkey: ValkeyClient,
+    @Inject(AbuseLimitService) private readonly abuseLimit: AbuseLimitService,
   ) {
     this.tenants = new TenantContextResolver(database, bindings);
   }
@@ -76,7 +73,7 @@ export class MerchantAuthService {
     if (!parsed.success) throw new BadRequestException('Invalid credentials');
     const tenant = await this.tenants.resolve(host, correlationId ?? fallbackCorrelationId());
     if (origin !== `https://${tenant.host}`) throw new ForbiddenException();
-    await this.enforceRateLimit(tenant.storeId, parsed.data.email);
+    await this.abuseLimit.enforce(tenant.storeId, 'merchant_login', parsed.data.email.toLowerCase());
     const persistence = await import('@vaarg/persistence');
     const auth = await persistence.withStoreContext(
       persistence.createDb(this.database.getPool()),
@@ -196,26 +193,6 @@ export class MerchantAuthService {
       role,
       permissions: permissionsForRole(role),
     };
-  }
-
-  /** Per-store, per-email attempt counter in Valkey (5 attempts / 300s). */
-  private async enforceRateLimit(storeId: string, email: string): Promise<void> {
-    const digest = createHash('sha256').update(email.toLowerCase()).digest('hex');
-    const key = `vaarg:{${storeId}}:merchant-login:${digest}`;
-    let attempts: unknown;
-    try {
-      attempts = await this.valkey.getRateClient().eval(
-        "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],300) end; return n",
-        1,
-        key,
-      );
-    } catch {
-      throw new ServiceUnavailableException('Authentication unavailable');
-    }
-    if (typeof attempts !== 'number' || !Number.isInteger(attempts)) {
-      throw new ServiceUnavailableException('Authentication unavailable');
-    }
-    if (attempts > 5) throw new HttpException('Too many attempts', 429);
   }
 }
 
