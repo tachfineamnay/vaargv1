@@ -26,7 +26,7 @@ import {
   startConversationRunInputSchema,
   structuredMessagePayloadSchema,
   submitMessageInputSchema,
-   vaargAgUiStateSnapshotSchema,
+  vaargAgUiStateSnapshotSchema,
   validateControlledUiAction,
   validatedAgentRunResultSchema,
   withinCompositionLimits,
@@ -69,6 +69,7 @@ import {
   issueRunBridgeTicket,
   listActionProposalsForRun,
   listAgentRunStreamEvents,
+  markProviderCallUnknown,
   markRunPublishedExperienceRevision,
   reconcileModelCallUsage,
   reserveModelCallBudget,
@@ -374,9 +375,7 @@ export class ConversationService {
       maxMessages: 16,
     });
 
-    const latestUserMessage = [...historyBundle.messages]
-      .reverse()
-      .find((m) => m.role === 'user');
+    const latestUserMessage = [...historyBundle.messages].reverse().find((m) => m.role === 'user');
     if (!latestUserMessage) {
       throw AppError.badRequest(
         'NO_USER_MESSAGE: Submit a visitor message before starting an agent run',
@@ -446,6 +445,10 @@ export class ConversationService {
       Math.max(512, Math.ceil(latestUserMessage.content.length / 3) + 1024),
       modelPolicy.maxOutputTokens,
     );
+    // FIX04: stable logical provider-call identity. Hermes echoes this id, so
+    // the pre-request hook reservation dedupes to the SAME reservation instead
+    // of double-reserving (one reservation per logical provider call).
+    const initialProviderCallId = `vaarg-call:${created.run.runId}`;
     const { reservationId } = await reserveModelCallBudget(pool, {
       storeId: tenant.storeId,
       rootRunId: created.run.runId,
@@ -454,6 +457,7 @@ export class ConversationService {
       model: modelPolicy.model,
       reservedTokens: initialEstimate.reservedTokens,
       reservedCostUsd: initialEstimate.reservedCostUsd,
+      providerCallId: initialProviderCallId,
     });
 
     const bridgeTicket = issueRunBridgeTicket(this.bridgeSecret ?? '', {
@@ -496,6 +500,7 @@ export class ConversationService {
       bridgeMetadata: {
         'X-Vaarg-Bridge-Ticket': bridgeTicket,
         'X-Vaarg-Initial-Reservation': reservationId,
+        'X-Vaarg-Provider-Call-Id': initialProviderCallId,
         'X-Vaarg-Run-Provider': modelPolicy.provider,
         'X-Vaarg-Run-Model': modelPolicy.model,
       },
@@ -730,10 +735,7 @@ export class ConversationService {
     }
     const comp = compParsed.data;
 
-    if (
-      targetProposal.status === 'applied' &&
-      targetProposal.appliedExperienceRevision !== null
-    ) {
+    if (targetProposal.status === 'applied' && targetProposal.appliedExperienceRevision !== null) {
       return publishRunCompositionResultSchema.parse({
         published: true,
         replayed: true,
@@ -894,9 +896,7 @@ export class ConversationService {
     const writeEnvelope = (env: PersistedAgUiStreamEnvelope): boolean => {
       if (rawResponse.writableEnded || rawResponse.destroyed) return false;
       rawResponse.write(`id: ${env.eventId}\n${encoder.encodeSSE(env.event)}`);
-      return (
-        env.event.type === EventType.RUN_FINISHED || env.event.type === EventType.RUN_ERROR
-      );
+      return env.event.type === EventType.RUN_FINISHED || env.event.type === EventType.RUN_ERROR;
     };
 
     const writeEphemeralEvent = (event: AGUIEvent) => {
@@ -1071,9 +1071,7 @@ export class ConversationService {
     const replayKey = headerIdempotencyKey
       ? `${tenant.storeId}:${session.sessionId}:${headerIdempotencyKey}`
       : null;
-    const bodyHash = createHash('sha256')
-      .update(JSON.stringify(rawBody), 'utf8')
-      .digest('hex');
+    const bodyHash = createHash('sha256').update(JSON.stringify(rawBody), 'utf8').digest('hex');
 
     if (replayKey) {
       const cached = this.actionReplayCache.get(replayKey);
@@ -1284,16 +1282,10 @@ export class ConversationService {
         }
 
         if (ctx.submitReply && ctx.conversationId) {
-          const submitted = await this.submitMessage(
-            tenant,
-            session,
-            consent,
-            ctx.conversationId,
-            {
-              content: ctx.label,
-              idempotencyKey: `guided:${ctx.questionId}:${ctx.optionId}:${eventId}`,
-            },
-          );
+          const submitted = await this.submitMessage(tenant, session, consent, ctx.conversationId, {
+            content: ctx.label,
+            idempotencyKey: `guided:${ctx.questionId}:${ctx.optionId}:${eventId}`,
+          });
           submittedMessageId = submitted.message.messageId;
           contextVersion = submitted.contextVersion;
         }
@@ -1422,17 +1414,12 @@ export class ConversationService {
         if (item.type === 'message.delta' && item.delta) {
           if (!messageStarted) {
             messageStarted = true;
-            await this.recordAndBroadcastAgUiEvent(
-              tenant.storeId,
-              run.runId,
-              'msg:start',
-              {
-                type: EventType.TEXT_MESSAGE_START,
-                messageId: messageStreamId,
-                role: 'assistant',
-                timestamp: Date.now(),
-              } as unknown as AGUIEvent,
-            );
+            await this.recordAndBroadcastAgUiEvent(tenant.storeId, run.runId, 'msg:start', {
+              type: EventType.TEXT_MESSAGE_START,
+              messageId: messageStreamId,
+              role: 'assistant',
+              timestamp: Date.now(),
+            } as unknown as AGUIEvent);
           }
           deltaIdx += 1;
           await this.recordAndBroadcastAgUiEvent(
@@ -1463,18 +1450,13 @@ export class ConversationService {
               timestamp: Date.now(),
             } as unknown as AGUIEvent,
           );
-          await this.recordAndBroadcastAgUiEvent(
-            tenant.storeId,
-            run.runId,
-            `tc:start:${callId}`,
-            {
-              type: EventType.TOOL_CALL_START,
-              toolCallId: callId,
-              toolCallName: item.tool,
-              ...(messageStarted ? { parentMessageId: messageStreamId } : {}),
-              timestamp: Date.now(),
-            } as unknown as AGUIEvent,
-          );
+          await this.recordAndBroadcastAgUiEvent(tenant.storeId, run.runId, `tc:start:${callId}`, {
+            type: EventType.TOOL_CALL_START,
+            toolCallId: callId,
+            toolCallName: item.tool,
+            ...(messageStarted ? { parentMessageId: messageStreamId } : {}),
+            timestamp: Date.now(),
+          } as unknown as AGUIEvent);
           continue;
         }
 
@@ -1559,16 +1541,11 @@ export class ConversationService {
     }
 
     if (messageStarted) {
-      await this.recordAndBroadcastAgUiEvent(
-        tenant.storeId,
-        run.runId,
-        'msg:end',
-        {
-          type: EventType.TEXT_MESSAGE_END,
-          messageId: messageStreamId,
-          timestamp: Date.now(),
-        } as unknown as AGUIEvent,
-      );
+      await this.recordAndBroadcastAgUiEvent(tenant.storeId, run.runId, 'msg:end', {
+        type: EventType.TEXT_MESSAGE_END,
+        messageId: messageStreamId,
+        timestamp: Date.now(),
+      } as unknown as AGUIEvent);
     }
 
     try {
@@ -1813,12 +1790,20 @@ export class ConversationService {
     });
   }
 
+  /** FIX06: number of AG-UI events whose persistence/broadcast failed. */
+  private agUiEventFailures = 0;
+
+  /** FIX06: expose stream-event persistence failures instead of swallowing. */
+  getAgUiEventFailureCount(): number {
+    return this.agUiEventFailures;
+  }
+
   private async recordAndBroadcastAgUiEvent(
     storeId: string,
     runId: string,
     sourceKey: string,
     event: AGUIEvent,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const persisted = await appendAgentRunStreamEvent(this.database.getPool(), {
         storeId,
@@ -1829,8 +1814,20 @@ export class ConversationService {
       if (persisted) {
         this.runEventBus.emit(`run:${runId}`, persisted);
       }
-    } catch {
-      // Non-fatal in mocked unit tests without PostgreSQL event ledger
+      return true;
+    } catch (err) {
+      // FIX06: never silently drop a stream event failure. Surface it with a
+      // redacted, bounded log line and a counter so the failure is observable
+      // without tearing down an in-flight stream.
+      this.agUiEventFailures += 1;
+      const reason =
+        err instanceof Error
+          ? err.message.slice(0, 200)
+          : String(err).slice(0, 200);
+      console.error(
+        `[vaarg] AG-UI event persistence failed store=${storeId} run=${runId} source=${sourceKey}: ${reason}`,
+      );
+      return false;
     }
   }
 
@@ -1907,12 +1904,22 @@ export class ConversationService {
         runId: current.runId,
         provider: expectedPolicy.provider,
         model: expectedPolicy.model,
+        providerCallId: `vaarg-call:${current.runId}`,
         inputTokens: snapshot.usage.inputTokens,
         outputTokens: snapshot.usage.outputTokens,
         cacheReadTokens: snapshot.usage.cacheReadTokens,
         cacheWriteTokens: snapshot.usage.cacheWriteTokens,
         measuredCostUsd: measuredCost,
         ...(snapshot.runtime?.routeSource ? { routeSource: snapshot.runtime.routeSource } : {}),
+      });
+    } else if (!snapshot.usage && current.budget.reservedModelCalls > 0) {
+      // FIX04: provider usage evidence is missing — explicitly record UNKNOWN
+      // rather than silently reporting zero usage or leaking the reservation.
+      await markProviderCallUnknown(pool, {
+        storeId: tenant.storeId,
+        rootRunId: current.rootRunId,
+        providerCallId: `vaarg-call:${current.runId}`,
+        reason: 'provider_usage_unavailable_at_settlement',
       });
     }
 

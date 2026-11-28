@@ -377,8 +377,8 @@ export async function getConversationWithBoundedHistory(
     const ownsBySession = conversation.sessionId === verifiedSession.sessionId;
     const ownsByCustomer = Boolean(
       verifiedSession.customerId &&
-        conversation.customerId &&
-        verifiedSession.customerId === conversation.customerId,
+      conversation.customerId &&
+      verifiedSession.customerId === conversation.customerId,
     );
     if (!ownsBySession && !ownsByCustomer) {
       // Return 404 to avoid cross-visitor conversation enumeration
@@ -484,7 +484,9 @@ export async function appendUserConversationMessage(
       const existingRow = existing.rows[0] as Record<string, unknown> | undefined;
       if (existingRow) {
         if (existingRow.payload_hash && String(existingRow.payload_hash) !== payloadHash) {
-          throw AppError.conflict('IDEMPOTENCY_KEY_CONFLICT: Message content differs from original request');
+          throw AppError.conflict(
+            'IDEMPOTENCY_KEY_CONFLICT: Message content differs from original request',
+          );
         }
         return { message: mapMessageRow(existingRow), replayed: true };
       }
@@ -608,7 +610,9 @@ export async function createMasterAgentRunRecord(
       const existingRow = existing.rows[0] as Record<string, unknown> | undefined;
       if (existingRow) {
         if (existingRow.payload_hash && String(existingRow.payload_hash) !== payloadHash) {
-          throw AppError.conflict('IDEMPOTENCY_KEY_CONFLICT: Run parameters differ from original request');
+          throw AppError.conflict(
+            'IDEMPOTENCY_KEY_CONFLICT: Run parameters differ from original request',
+          );
         }
         return { run: mapAgentRunRow(existingRow), replayed: true };
       }
@@ -759,8 +763,7 @@ export async function resolveRunIdentityForHermesSession(
       throw AppError.unauthorized('RUN_IDENTITY_NOT_FOUND: Unknown run or Hermes session');
     }
     const rootRow = rows.find((r) => String(r.run_id) === params.rootRunId) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (!rootRow) {
       throw AppError.unauthorized('ROOT_RUN_NOT_FOUND');
     }
@@ -799,7 +802,7 @@ async function lockAndCheckRootBudget(
   client: PoolClient,
   storeId: string,
   rootRunId: string,
-): Promise<AgentRunRecord> {
+): Promise<AgentRunRecord | { kind: 'deadline_exceeded' }> {
   const { rows } = await client.query(
     `SELECT * FROM agent_runs
       WHERE store_id = $1 AND run_id = $2
@@ -816,13 +819,20 @@ async function lockAndCheckRootBudget(
     throw AppError.conflict('RUN_CANCELLED: Agent run has been cancelled');
   }
   if (root.status === 'superseded') {
-    throw AppError.conflict('RUN_SUPERSEDED: Agent run has been superseded by newer visitor context');
+    throw AppError.conflict(
+      'RUN_SUPERSEDED: Agent run has been superseded by newer visitor context',
+    );
   }
   if (isTerminalAgentRunStatus(root.status)) {
-    throw AppError.conflict(`RUN_TERMINAL: Agent run is already in terminal state "${root.status}"`);
+    throw AppError.conflict(
+      `RUN_TERMINAL: Agent run is already in terminal state "${root.status}"`,
+    );
   }
 
   if (new Date(root.budget.deadlineAt).getTime() <= Date.now()) {
+    // Mark timed_out here, but do NOT throw: the caller must commit this
+    // terminal state in the SAME transaction. Throwing here would roll the
+    // marking back and lose the durable terminal state (FIX04).
     await client.query(
       `UPDATE agent_runs
           SET status = 'timed_out',
@@ -834,10 +844,26 @@ async function lockAndCheckRootBudget(
           AND status IN ('queued', 'running', 'cancelling')`,
       [storeId, rootRunId],
     );
-    throw AppError.unavailable('RUN_DEADLINE_EXCEEDED: Execution deadline reached');
+    return { kind: 'deadline_exceeded' };
   }
 
   return root;
+}
+
+/**
+ * FIX04: commit a terminal budget-exceeded state in its OWN transaction so it
+ * survives the AppError thrown to the caller. Used after the current budget
+ * transaction commits its successful path, and on the preflight check path.
+ */
+export async function markRootTreeBudgetExceededCommitted(
+  pool: Pool,
+  storeId: string,
+  rootRunId: string,
+  reason: string,
+): Promise<void> {
+  await scopedStoreTransaction(pool, storeId, async (client) => {
+    await markRootTreeBudgetExceeded(client, storeId, rootRunId, reason);
+  });
 }
 
 async function markRootTreeBudgetExceeded(
@@ -871,6 +897,10 @@ async function markRootTreeBudgetExceeded(
   );
 }
 
+export type ReserveModelCallBudgetResult =
+  | { reservationId: string; providerCallId: string | null }
+  | { budgetExceeded: true; reason: string };
+
 export async function reserveModelCallBudget(
   pool: Pool,
   params: {
@@ -881,67 +911,134 @@ export async function reserveModelCallBudget(
     model: string;
     reservedTokens: number;
     reservedCostUsd: number;
+    /** Stable logical provider-call identity (FIX04). */
+    providerCallId?: string | null;
   },
-): Promise<{ reservationId: string }> {
-  return scopedStoreTransaction(pool, params.storeId, async (client) => {
-    const root = await lockAndCheckRootBudget(client, params.storeId, params.rootRunId);
-    const b = root.budget;
+): Promise<{ reservationId: string; providerCallId: string | null }> {
+  const result:
+    | { reservationId: string; providerCallId: string | null }
+    | { budgetExceeded: true; reason: string } = await scopedStoreTransaction(
+    pool,
+    params.storeId,
+    async (client) => {
+      // FIX04: idempotent reservation keyed by the stable provider-call id.
+      if (params.providerCallId) {
+        const existing = await client.query<{ usage_id: string }>(
+          `SELECT usage_id FROM model_usage
+            WHERE store_id = $1 AND provider_call_id = $2
+            LIMIT 1`,
+          [params.storeId, params.providerCallId],
+        );
+        if (existing.rows[0]) {
+          return {
+            reservationId: existing.rows[0].usage_id,
+            providerCallId: params.providerCallId,
+          };
+        }
+      }
 
-    const nextModelCalls = b.consumedModelCalls + b.reservedModelCalls + 1;
-    if (nextModelCalls > b.maxModelCalls) {
-      await markRootTreeBudgetExceeded(client, params.storeId, params.rootRunId, 'max_model_calls_exceeded');
-      throw AppError.forbidden(
-        `BUDGET_EXCEEDED: Model call limit (${b.maxModelCalls}) exceeded across parent and child runs`,
+      const locked = await lockAndCheckRootBudget(client, params.storeId, params.rootRunId);
+      if ('kind' in locked) {
+        // Deadline terminal state is committed by this transaction's COMMIT;
+        // throw after commit so the state is durable (FIX04).
+        return {
+          budgetExceeded: true,
+          reason: 'RUN_DEADLINE_EXCEEDED: Execution deadline reached',
+        };
+      }
+      const root = locked;
+      const b = root.budget;
+
+      const nextModelCalls = b.consumedModelCalls + b.reservedModelCalls + 1;
+      if (nextModelCalls > b.maxModelCalls) {
+        await markRootTreeBudgetExceeded(
+          client,
+          params.storeId,
+          params.rootRunId,
+          'max_model_calls_exceeded',
+        );
+        return {
+          budgetExceeded: true,
+          reason: `BUDGET_EXCEEDED: Model call limit (${b.maxModelCalls}) exceeded across parent and child runs`,
+        };
+      }
+
+      const nextTokens = b.consumedTokens + b.reservedTokens + params.reservedTokens;
+      if (nextTokens > b.maxTokens) {
+        await markRootTreeBudgetExceeded(
+          client,
+          params.storeId,
+          params.rootRunId,
+          'max_tokens_exceeded',
+        );
+        return {
+          budgetExceeded: true,
+          reason: `BUDGET_EXCEEDED: Token budget (${b.maxTokens}) exceeded across parent and child runs`,
+        };
+      }
+
+      const nextCost = Number(
+        (b.consumedCostUsd + b.reservedCostUsd + params.reservedCostUsd).toFixed(6),
       );
-    }
+      if (nextCost > b.maxCostUsd) {
+        await markRootTreeBudgetExceeded(
+          client,
+          params.storeId,
+          params.rootRunId,
+          'max_cost_usd_exceeded',
+        );
+        return {
+          budgetExceeded: true,
+          reason: `BUDGET_EXCEEDED: Monetary budget ($${b.maxCostUsd.toFixed(4)}) exceeded across parent and child runs`,
+        };
+      }
 
-    const nextTokens = b.consumedTokens + b.reservedTokens + params.reservedTokens;
-    if (nextTokens > b.maxTokens) {
-      await markRootTreeBudgetExceeded(client, params.storeId, params.rootRunId, 'max_tokens_exceeded');
-      throw AppError.forbidden(
-        `BUDGET_EXCEEDED: Token budget (${b.maxTokens}) exceeded across parent and child runs`,
+      await client.query(
+        `UPDATE agent_runs
+            SET reserved_model_calls = reserved_model_calls + 1,
+                reserved_tokens = reserved_tokens + $3,
+                reserved_cost_usd = reserved_cost_usd + $4,
+                updated_at = now()
+          WHERE store_id = $1 AND run_id = $2`,
+        [params.storeId, params.rootRunId, params.reservedTokens, params.reservedCostUsd],
       );
-    }
 
-    const nextCost = Number((b.consumedCostUsd + b.reservedCostUsd + params.reservedCostUsd).toFixed(6));
-    if (nextCost > b.maxCostUsd) {
-      await markRootTreeBudgetExceeded(client, params.storeId, params.rootRunId, 'max_cost_usd_exceeded');
-      throw AppError.forbidden(
-        `BUDGET_EXCEEDED: Monetary budget ($${b.maxCostUsd.toFixed(4)}) exceeded across parent and child runs`,
+      const reservationId = randomUUID();
+      await client.query(
+        `INSERT INTO model_usage (
+           store_id, usage_id, run_id, root_run_id, provider, model,
+           provider_call_id, reserved_tokens, reserved_cost_usd, measured_cost_usd,
+           reconciled, status, retention_expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, false, 'reserved', $10)`,
+        [
+          params.storeId,
+          reservationId,
+          params.runId,
+          params.rootRunId,
+          params.provider,
+          params.model,
+          params.providerCallId ?? null,
+          params.reservedTokens,
+          params.reservedCostUsd,
+          new Date(Date.now() + DEFAULT_RUN_TTL_MS),
+        ],
       );
-    }
 
-    await client.query(
-      `UPDATE agent_runs
-          SET reserved_model_calls = reserved_model_calls + 1,
-              reserved_tokens = reserved_tokens + $3,
-              reserved_cost_usd = reserved_cost_usd + $4,
-              updated_at = now()
-        WHERE store_id = $1 AND run_id = $2`,
-      [params.storeId, params.rootRunId, params.reservedTokens, params.reservedCostUsd],
-    );
+      return { reservationId, providerCallId: params.providerCallId ?? null };
+    },
+  );
 
-    const reservationId = randomUUID();
-    await client.query(
-      `INSERT INTO model_usage (
-         store_id, usage_id, run_id, root_run_id, provider, model,
-         reserved_tokens, reserved_cost_usd, measured_cost_usd, reconciled, retention_expires_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, false, $9)`,
-      [
-        params.storeId,
-        reservationId,
-        params.runId,
-        params.rootRunId,
-        params.provider,
-        params.model,
-        params.reservedTokens,
-        params.reservedCostUsd,
-        new Date(Date.now() + DEFAULT_RUN_TTL_MS),
-      ],
-    );
-
-    return { reservationId };
-  });
+  // The budget transaction above committed (including any terminal
+  // budget-exceeded marking). Throw AFTER commit so the durable terminal
+  // state is not rolled back (FIX04).
+  if ('budgetExceeded' in result && result.budgetExceeded) {
+    const reason = result.reason;
+    throw reason.startsWith('RUN_DEADLINE')
+      ? AppError.unavailable(reason)
+      : AppError.forbidden(reason);
+  }
+  const reservation = result as { reservationId: string; providerCallId: string | null };
+  return reservation;
 }
 
 export async function reconcileModelCallUsage(
@@ -951,6 +1048,7 @@ export async function reconcileModelCallUsage(
     rootRunId: string;
     runId: string;
     reservationId?: string;
+    providerCallId?: string | null;
     provider: DirectModelProvider;
     model: string;
     providerRequestId?: string;
@@ -997,6 +1095,7 @@ export async function reconcileModelCallUsage(
         await client.query(
           `UPDATE model_usage
               SET provider_request_id = $3,
+                  provider_call_id = COALESCE($12, provider_call_id),
                   input_tokens = $4,
                   output_tokens = $5,
                   total_tokens = $6,
@@ -1004,6 +1103,7 @@ export async function reconcileModelCallUsage(
                   cache_write_tokens = $8,
                   measured_cost_usd = $9,
                   reconciled = true,
+                  status = 'reconciled',
                   latency_ms = $10,
                   route_source = $11,
                   recorded_at = now()
@@ -1020,6 +1120,38 @@ export async function reconcileModelCallUsage(
             params.measuredCostUsd,
             params.latencyMs ?? null,
             params.routeSource ?? null,
+            params.providerCallId ?? null,
+          ],
+        );
+      } else if (!resRow) {
+        // FIX04: a reservation id was supplied but the row is missing — the
+        // outcome is AMBIGUOUS. Never silently report zero usage; record an
+        // explicit unknown row with the provider-call identity.
+        await client.query(
+          `INSERT INTO model_usage (
+             store_id, usage_id, run_id, root_run_id, provider, model, provider_request_id,
+             provider_call_id, input_tokens, output_tokens, total_tokens,
+             cache_read_tokens, cache_write_tokens, reserved_tokens, reserved_cost_usd,
+             measured_cost_usd, reconciled, status, latency_ms, route_source, retention_expires_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,0,$14,false,'unknown',$15,$16,$17)`,
+          [
+            params.storeId,
+            randomUUID(),
+            params.runId,
+            params.rootRunId,
+            params.provider,
+            params.model,
+            params.providerRequestId ?? null,
+            params.providerCallId ?? null,
+            params.inputTokens,
+            params.outputTokens,
+            totalTokens,
+            params.cacheReadTokens ?? 0,
+            params.cacheWriteTokens ?? 0,
+            params.measuredCostUsd,
+            params.latencyMs ?? null,
+            params.routeSource ?? null,
+            new Date(Date.now() + DEFAULT_RUN_TTL_MS),
           ],
         );
       }
@@ -1027,10 +1159,10 @@ export async function reconcileModelCallUsage(
       await client.query(
         `INSERT INTO model_usage (
            store_id, usage_id, run_id, root_run_id, provider, model, provider_request_id,
-           input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens,
-           reserved_tokens, reserved_cost_usd, measured_cost_usd, reconciled,
-           latency_ms, route_source, retention_expires_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 0, $13, true, $14, $15, $16)`,
+           provider_call_id, input_tokens, output_tokens, total_tokens, cache_read_tokens,
+           cache_write_tokens, reserved_tokens, reserved_cost_usd, measured_cost_usd,
+           reconciled, status, latency_ms, route_source, retention_expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 0, 0, $14, true, 'reconciled', $15, $16, $17)`,
         [
           params.storeId,
           randomUUID(),
@@ -1039,6 +1171,7 @@ export async function reconcileModelCallUsage(
           params.provider,
           params.model,
           params.providerRequestId ?? null,
+          params.providerCallId ?? null,
           params.inputTokens,
           params.outputTokens,
           totalTokens,
@@ -1093,6 +1226,35 @@ export async function reconcileModelCallUsage(
   });
 }
 
+/**
+ * FIX04: explicitly record a provider-call outcome as UNKNOWN when provider
+ * evidence is missing. Never silently report zero usage and never leave a
+ * reservation dangling without an outcome.
+ */
+export async function markProviderCallUnknown(
+  pool: Pool,
+  params: {
+    storeId: string;
+    rootRunId: string;
+    providerCallId: string;
+    reason: string;
+  },
+): Promise<void> {
+  await scopedStoreTransaction(pool, params.storeId, async (client) => {
+    await client.query(
+      `UPDATE model_usage
+          SET status = 'unknown',
+              abandoned_reason = $3,
+              reconciled = false
+        WHERE store_id = $1
+          AND root_run_id = $2
+          AND provider_call_id = $4
+          AND status IN ('reserved', 'unknown')`,
+      [params.storeId, params.rootRunId, params.reason.slice(0, 80), params.providerCallId],
+    );
+  });
+}
+
 export async function reserveChildDelegationRun(
   pool: Pool,
   params: {
@@ -1107,9 +1269,11 @@ export async function reserveChildDelegationRun(
     model: string;
     promptVersion: string;
   },
-): Promise<AgentRunRecord> {
+): Promise<AgentRunRecord | { deadlineExceeded: true }> {
   if (params.role === 'master') {
-    throw AppError.forbidden('DELEGATION_ROLE_FORBIDDEN: Cannot spawn a child run with role "master"');
+    throw AppError.forbidden(
+      'DELEGATION_ROLE_FORBIDDEN: Cannot spawn a child run with role "master"',
+    );
   }
   if (params.requestedDepth > MAX_DELEGATION_DEPTH_HARD_CAP) {
     throw AppError.forbidden(
@@ -1117,8 +1281,14 @@ export async function reserveChildDelegationRun(
     );
   }
 
-  return scopedStoreTransaction(pool, params.storeId, async (client) => {
-    const root = await lockAndCheckRootBudget(client, params.storeId, params.rootRunId);
+  const result = await scopedStoreTransaction(pool, params.storeId, async (client) => {
+    const locked = await lockAndCheckRootBudget(client, params.storeId, params.rootRunId);
+    if ('kind' in locked) {
+      // Deadline terminal state is committed by this transaction's COMMIT;
+      // throw after commit so the state is durable (FIX04).
+      return { deadlineExceeded: true as const };
+    }
+    const root = locked;
 
     // Verify parent is actually the root run (depth 0), NEVER another child!
     if (root.hermesSessionId !== params.parentHermesSessionId) {
@@ -1152,10 +1322,7 @@ export async function reserveChildDelegationRun(
     const childRunId = randomUUID();
     const rolePolicy = ROLE_DEFINITIONS[params.role].defaultBudgetPolicy;
     const childDeadline = new Date(
-      Math.min(
-        new Date(root.budget.deadlineAt).getTime(),
-        Date.now() + rolePolicy.maxDurationMs,
-      ),
+      Math.min(new Date(root.budget.deadlineAt).getTime(), Date.now() + rolePolicy.maxDurationMs),
     );
 
     const inserted = await client.query(
@@ -1205,6 +1372,12 @@ export async function reserveChildDelegationRun(
 
     return mapAgentRunRow(inserted.rows[0] as Record<string, unknown>);
   });
+
+  // Deadline terminal state committed above; throw AFTER commit so it is durable (FIX04).
+  if ('deadlineExceeded' in result) {
+    throw AppError.unavailable('RUN_DEADLINE_EXCEEDED: Execution deadline reached');
+  }
+  return result as AgentRunRecord;
 }
 
 export async function completeChildDelegationRun(
@@ -1275,6 +1448,7 @@ export async function beginToolInvocationAudit(
 ): Promise<
   | { kind: 'replayed'; cachedOutput: Record<string, unknown> }
   | { kind: 'started'; invocationId: string }
+  | { kind: 'budget_exceeded'; reason: string }
 > {
   const inputRedacted = redactStructuredRecord(params.rawInput);
   const payloadHash = hashPayloadSha256(inputRedacted);
@@ -1295,7 +1469,9 @@ export async function beginToolInvocationAudit(
       const ex = existing.rows[0];
       if (ex) {
         if (ex.payload_hash && ex.payload_hash !== payloadHash) {
-          throw AppError.conflict('TOOL_IDEMPOTENCY_CONFLICT: Arguments differ for same idempotencyKey');
+          throw AppError.conflict(
+            'TOOL_IDEMPOTENCY_CONFLICT: Arguments differ for same idempotencyKey',
+          );
         }
         if (ex.status === 'succeeded' && ex.output_redacted) {
           return { kind: 'replayed', cachedOutput: ex.output_redacted };
@@ -1304,7 +1480,16 @@ export async function beginToolInvocationAudit(
     }
 
     if (params.reserveBudgetSlot) {
-      const root = await lockAndCheckRootBudget(client, params.storeId, params.rootRunId);
+      const lockedRoot = await lockAndCheckRootBudget(client, params.storeId, params.rootRunId);
+      if ('kind' in lockedRoot) {
+        // Deadline terminal state is committed by this transaction; signal the
+        // caller to throw AFTER commit so it is durable (FIX04).
+        return {
+          kind: 'budget_exceeded',
+          reason: 'RUN_DEADLINE_EXCEEDED: Execution deadline reached',
+        };
+      }
+      const root = lockedRoot;
       const b = root.budget;
       if (b.consumedToolCalls + b.reservedToolCalls + 1 > b.maxToolCalls) {
         await markRootTreeBudgetExceeded(
@@ -1344,9 +1529,10 @@ export async function beginToolInvocationAudit(
             new Date(Date.now() + DEFAULT_RUN_TTL_MS),
           ],
         );
-        throw AppError.forbidden(
-          `BUDGET_EXCEEDED: Tool invocation limit (${b.maxToolCalls}) exceeded across parent and child runs`,
-        );
+        return {
+          kind: 'budget_exceeded',
+          reason: `BUDGET_EXCEEDED: Tool invocation limit (${b.maxToolCalls}) exceeded across parent and child runs`,
+        };
       }
 
       await client.query(
@@ -1406,8 +1592,7 @@ export async function finalizeToolInvocationAudit(
     releaseReservedBudgetSlot: boolean;
   },
 ): Promise<void> {
-  const outputRedacted =
-    params.output !== undefined ? redactStructuredRecord(params.output) : null;
+  const outputRedacted = params.output !== undefined ? redactStructuredRecord(params.output) : null;
 
   await scopedStoreTransaction(pool, params.storeId, async (client) => {
     if (params.releaseReservedBudgetSlot) {
@@ -1605,12 +1790,7 @@ export async function updateActionProposalResolution(
               resolved_at = now(),
               updated_at = now()
         WHERE store_id = $1 AND proposal_id = $2`,
-      [
-        params.storeId,
-        params.proposalId,
-        params.status,
-        params.appliedExperienceRevision ?? null,
-      ],
+      [params.storeId, params.proposalId, params.status, params.appliedExperienceRevision ?? null],
     );
   });
 }
@@ -1683,7 +1863,13 @@ export async function finalizeMasterRunAndAcceptMessage(
     runId: string;
     status: Extract<
       AgentRunStatus,
-      'completed' | 'failed' | 'cancelled' | 'superseded' | 'budget_exceeded' | 'timed_out' | 'unknown'
+      | 'completed'
+      | 'failed'
+      | 'cancelled'
+      | 'superseded'
+      | 'budget_exceeded'
+      | 'timed_out'
+      | 'unknown'
     >;
     assistantContent: string | null;
     structuredPayload?: StructuredMessagePayload;
@@ -1710,7 +1896,9 @@ export async function finalizeMasterRunAndAcceptMessage(
 
     // Enforce Master-only direct communication invariant!
     if (current.role !== 'master' || current.depth !== 0) {
-      throw AppError.forbidden('MASTER_ONLY_SPEAKER: Specialist child runs cannot emit visitor messages');
+      throw AppError.forbidden(
+        'MASTER_ONLY_SPEAKER: Specialist child runs cannot emit visitor messages',
+      );
     }
 
     // Check if already superseded/cancelled/budget_exceeded or if visitor context advanced
@@ -1767,7 +1955,9 @@ export async function finalizeMasterRunAndAcceptMessage(
         params.runId,
         effectiveStatus,
         contextMoved ? 'context_version_superseded' : effectiveStatus,
-        params.validatedOutput ? JSON.stringify(redactStructuredRecord(params.validatedOutput)) : null,
+        params.validatedOutput
+          ? JSON.stringify(redactStructuredRecord(params.validatedOutput))
+          : null,
         JSON.stringify(cleanTrace),
         staleBlocked ? null : (params.publishedExperienceRevision ?? null),
         params.errorCode ?? null,
@@ -2015,8 +2205,7 @@ export async function appendAgentRunStreamEvent(
         [params.storeId, params.runId, params.sourceKey],
       );
       const existingRow = existing.rows[0] as
-        | { event_seq: string; event_id: string; payload: unknown }
-        | undefined;
+        { event_seq: string; event_id: string; payload: unknown } | undefined;
       if (existingRow) {
         const reparsed = validateSafeAgUiEvent(existingRow.payload);
         if (!reparsed.ok) {

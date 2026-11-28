@@ -125,6 +125,10 @@ export class HermesBridgeController {
       model: policy.model,
       reservedTokens: est.reservedTokens,
       reservedCostUsd: est.reservedCostUsd,
+      // FIX04: stable logical provider-call identity. When the plugin echoes
+      // VAARG's initial reservation id, this dedupes to ONE reservation per
+      // logical call instead of double-reserving.
+      providerCallId: parsed.data.providerCallId ?? null,
     });
 
     return {
@@ -181,6 +185,7 @@ export class HermesBridgeController {
       ...(parsed.data.providerRequestId
         ? { providerRequestId: parsed.data.providerRequestId }
         : {}),
+      ...(parsed.data.providerCallId ? { providerCallId: parsed.data.providerCallId } : {}),
       inputTokens: parsed.data.inputTokens,
       outputTokens: parsed.data.outputTokens,
       cacheReadTokens: parsed.data.cacheReadTokens,
@@ -230,6 +235,10 @@ export class HermesBridgeController {
       model: childPolicy.model,
       promptVersion: roleDef.version,
     });
+
+    if ('deadlineExceeded' in childRun) {
+      throw AppError.unavailable('RUN_DEADLINE_EXCEEDED: Execution deadline reached');
+    }
 
     return {
       allowed: true,
@@ -359,7 +368,9 @@ export class HermesBridgeController {
         const params = rpc.params ?? {};
         const name = typeof params.name === 'string' ? params.name : '';
         const args =
-          params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
+          params.arguments &&
+          typeof params.arguments === 'object' &&
+          !Array.isArray(params.arguments)
             ? (params.arguments as Record<string, unknown>)
             : {};
         const output = await this.toolBroker.invoke({

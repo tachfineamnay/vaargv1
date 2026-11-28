@@ -194,7 +194,9 @@ export const brokerUpdateExplicitCriteriaInputSchema = z
     idempotencyKey: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
-export type BrokerUpdateExplicitCriteriaInput = z.infer<typeof brokerUpdateExplicitCriteriaInputSchema>;
+export type BrokerUpdateExplicitCriteriaInput = z.infer<
+  typeof brokerUpdateExplicitCriteriaInputSchema
+>;
 
 export const verifiedProductDetailOutputSchema = z.strictObject({
   found: z.boolean(),
@@ -279,6 +281,8 @@ export const hermesBridgeLlmReserveSchema = z
     model: z.string().min(1).max(120),
     estimatedInputTokens: z.number().int().min(1).max(500_000).default(2_048),
     maxOutputTokens: z.number().int().min(1).max(65_536).default(1_024),
+    /** Stable logical provider-call identity; reuses VAARG's initial reservation. */
+    providerCallId: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type HermesBridgeLlmReserveRequest = z.infer<typeof hermesBridgeLlmReserveSchema>;
@@ -291,6 +295,8 @@ export const hermesBridgeLlmReconcileSchema = z
     provider: directModelProviderSchema,
     model: z.string().min(1).max(120),
     providerRequestId: z.string().max(200).optional(),
+    /** Stable logical provider-call identity used for dedupe/reconciliation. */
+    providerCallId: z.string().min(1).max(200).optional(),
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
     cacheReadTokens: z.number().int().nonnegative().default(0),
@@ -359,16 +365,21 @@ export function getToolJsonSchemasForAdvertisedCapabilities(
   inputSchema: Record<string, unknown>;
 }> {
   const descriptions: Record<ActiveToolCapability, string> = {
-    search_catalog: 'Search store catalog in current verified market with lexical, hybrid, or contextual retrieval.',
-    get_product: 'Retrieve verified Shopify product details, variants, options, and market pricing.',
+    search_catalog:
+      'Search store catalog in current verified market with lexical, hybrid, or contextual retrieval.',
+    get_product:
+      'Retrieve verified Shopify product details, variants, options, and market pricing.',
     get_variant: 'Retrieve a verified Shopify product variant by ProductVariant GID.',
     compare_products: 'Compare 2 to 4 verified catalog products side by side.',
-    get_compatible_options: 'Inspect declared options and available variants for a product (compatibility is UNKNOWN unless declared).',
+    get_compatible_options:
+      'Inspect declared options and available variants for a product (compatibility is UNKNOWN unless declared).',
     get_related_products: 'Find verified products in the same collection or product type.',
     get_experience_context: 'Read the active visitor session ExperienceContext and contextVersion.',
     get_recommendations: 'Retrieve consent-aware, market-scoped product recommendations.',
-    propose_experience_composition: 'Create a validated non-mutating AdaptiveComposition proposal bound to contextVersion.',
-    update_explicit_criteria: 'Record explicit visitor-declared exploration criteria on the active session.',
+    propose_experience_composition:
+      'Create a validated non-mutating AdaptiveComposition proposal bound to contextVersion.',
+    update_explicit_criteria:
+      'Record explicit visitor-declared exploration criteria on the active session.',
   };
 
   return capabilities.map((name) => ({

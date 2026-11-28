@@ -49,6 +49,7 @@ import {
   resolveProductSummaries,
   scopedStoreTransaction,
   withdrawPersonalization,
+  checkProviderAdmission,
   type StorefrontBinding,
 } from '@vaarg/persistence';
 import { TenantContextResolver } from '../tenant/tenant-context.resolver.js';
@@ -399,7 +400,39 @@ export class ExperienceService {
       constraints: { available: query.available, currency: tenant.currency, priceMin: query.priceMin,
         priceMax: query.priceMax, collection: query.collection, productType: query.productType,
         vendor: query.vendor, attributes: query.attribute ? [query.attribute] : [] } });
+
+    // FIX05: hybrid mode invokes the embedding provider. Gate it behind the
+    // durable provider admission ledger so an unconfigured/unauthorized/
+    // expired provider allocation fails closed instead of silently degrading.
+    if (query.mode === 'hybrid') {
+      const embeddingIdentity = this.embedding.identity();
+      if (!embeddingIdentity) {
+        // No provider configured: hybrid degrades to the lexical channel
+        // (honest DEGRADED_LEXICAL status, never a fake vector path).
+        const lexical = await this.searchPort.lexicalSearch(request);
+        return this.finalizeStorefront(lexical, scope);
+      }
+      const admission = await checkProviderAdmission(this.database.getPool(), {
+        storeId: tenant.storeId,
+        purpose: 'storefront_hybrid_search',
+        provider: embeddingIdentity.provider,
+        model: embeddingIdentity.model,
+        scopeKey: `${tenant.storeId}:${tenant.country}:${tenant.language}`,
+      });
+      if (!admission.admitted) {
+        // Fail closed: no admission allocation ⇒ hybrid is not permitted.
+        throw AppError.forbidden(`PROVIDER_ADMISSION_DENIED: ${admission.reason}`);
+      }
+    }
+
     const result = query.mode === 'hybrid' ? await this.searchPort.hybridSearch(request) : await this.searchPort.lexicalSearch(request);
+    return this.finalizeStorefront(result, scope);
+  }
+
+  private async finalizeStorefront(
+    result: SearchResult,
+    scope: { storeId: string; country: string; language: string },
+  ) {
     const summaries = await resolveProductSummaries(this.database.getPool(), scope, result.items.map(item => item.productRef));
     return storefrontSearchResponseSchema.parse({ ...result,
       items: result.items.flatMap(item => { const summary = summaries.get(item.productRef); return summary ? [summary] : []; }), nextCursor: null });

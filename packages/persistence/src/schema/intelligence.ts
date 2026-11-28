@@ -15,6 +15,7 @@ import {
   index,
   foreignKey,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { stores, customers } from './identity.js';
 import { visitorSessions } from './experience.js';
 
@@ -71,8 +72,15 @@ export const agentPromptVersions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    primaryKey({ name: 'agent_prompt_versions_pkey', columns: [table.storeId, table.promptVersionId] }),
-    uniqueIndex('agent_prompt_versions_role_version_uidx').on(table.storeId, table.role, table.version),
+    primaryKey({
+      name: 'agent_prompt_versions_pkey',
+      columns: [table.storeId, table.promptVersionId],
+    }),
+    uniqueIndex('agent_prompt_versions_role_version_uidx').on(
+      table.storeId,
+      table.role,
+      table.version,
+    ),
   ],
 );
 
@@ -89,12 +97,24 @@ export const providerPolicies = pgTable(
     maxContextTokens: integer('max_context_tokens').notNull(),
     maxOutputTokens: integer('max_output_tokens').notNull(),
     timeoutMs: integer('timeout_ms').notNull(),
-    inputCostPerMillionUsd: numeric('input_cost_per_million_usd', { precision: 12, scale: 6 }).notNull(),
-    outputCostPerMillionUsd: numeric('output_cost_per_million_usd', { precision: 12, scale: 6 }).notNull(),
-    cacheReadCostPerMillionUsd: numeric('cache_read_cost_per_million_usd', { precision: 12, scale: 6 })
+    inputCostPerMillionUsd: numeric('input_cost_per_million_usd', {
+      precision: 12,
+      scale: 6,
+    }).notNull(),
+    outputCostPerMillionUsd: numeric('output_cost_per_million_usd', {
+      precision: 12,
+      scale: 6,
+    }).notNull(),
+    cacheReadCostPerMillionUsd: numeric('cache_read_cost_per_million_usd', {
+      precision: 12,
+      scale: 6,
+    })
       .notNull()
       .default('0'),
-    cacheWriteCostPerMillionUsd: numeric('cache_write_cost_per_million_usd', { precision: 12, scale: 6 })
+    cacheWriteCostPerMillionUsd: numeric('cache_write_cost_per_million_usd', {
+      precision: 12,
+      scale: 6,
+    })
       .notNull()
       .default('0'),
     pricingVerified: boolean('pricing_verified').notNull().default(false),
@@ -104,8 +124,15 @@ export const providerPolicies = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    primaryKey({ name: 'provider_policies_pkey', columns: [table.storeId, table.providerPolicyId] }),
-    uniqueIndex('provider_policies_provider_model_uidx').on(table.storeId, table.provider, table.model),
+    primaryKey({
+      name: 'provider_policies_pkey',
+      columns: [table.storeId, table.providerPolicyId],
+    }),
+    uniqueIndex('provider_policies_provider_model_uidx').on(
+      table.storeId,
+      table.provider,
+      table.model,
+    ),
   ],
 );
 
@@ -179,8 +206,12 @@ export const agentRuns = pgTable(
     consumedModelCalls: integer('consumed_model_calls').notNull().default(0),
     reservedToolCalls: integer('reserved_tool_calls').notNull().default(0),
     consumedToolCalls: integer('consumed_tool_calls').notNull().default(0),
-    reservedCostUsd: numeric('reserved_cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
-    consumedCostUsd: numeric('consumed_cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    reservedCostUsd: numeric('reserved_cost_usd', { precision: 12, scale: 6 })
+      .notNull()
+      .default('0'),
+    consumedCostUsd: numeric('consumed_cost_usd', { precision: 12, scale: 6 })
+      .notNull()
+      .default('0'),
     activeChildrenCount: integer('active_children_count').notNull().default(0),
     totalChildrenSpawned: integer('total_children_spawned').notNull().default(0),
     deadlineAt: timestamp('deadline_at', { withTimezone: true }).notNull(),
@@ -223,8 +254,17 @@ export const agentRuns = pgTable(
       columns: [table.storeId, table.customerId],
       foreignColumns: [customers.storeId, customers.customerId],
     }),
-    index('agent_runs_conversation_status_idx').on(table.storeId, table.conversationId, table.status),
-    index('agent_runs_root_children_idx').on(table.storeId, table.rootRunId, table.depth, table.status),
+    index('agent_runs_conversation_status_idx').on(
+      table.storeId,
+      table.conversationId,
+      table.status,
+    ),
+    index('agent_runs_root_children_idx').on(
+      table.storeId,
+      table.rootRunId,
+      table.depth,
+      table.status,
+    ),
   ],
 );
 
@@ -242,7 +282,10 @@ export const messages = pgTable(
     role: text('role').notNull(),
     status: text('status').notNull().default('accepted'),
     content: text('content').notNull(),
-    structuredPayload: jsonb('structured_payload').$type<Record<string, unknown>>().notNull().default({}),
+    structuredPayload: jsonb('structured_payload')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     contextVersion: bigint('context_version', { mode: 'number' }).notNull(),
     correlationId: varchar('correlation_id', { length: 128 }).notNull(),
     idempotencyKey: varchar('idempotency_key', { length: 200 }),
@@ -252,7 +295,11 @@ export const messages = pgTable(
   },
   (table) => [
     primaryKey({ name: 'messages_pkey', columns: [table.storeId, table.messageId] }),
-    uniqueIndex('messages_conversation_seq_uidx').on(table.storeId, table.conversationId, table.sequence),
+    uniqueIndex('messages_conversation_seq_uidx').on(
+      table.storeId,
+      table.conversationId,
+      table.sequence,
+    ),
     foreignKey({
       name: 'messages_store_conversation_fk',
       columns: [table.storeId, table.conversationId],
@@ -361,14 +408,21 @@ export const modelUsage = pgTable(
     provider: text('provider').notNull(),
     model: varchar('model', { length: 120 }).notNull(),
     providerRequestId: varchar('provider_request_id', { length: 200 }),
+    providerCallId: varchar('provider_call_id', { length: 200 }),
+    status: text('status').notNull().default('reserved'),
+    abandonedReason: varchar('abandoned_reason', { length: 80 }),
     inputTokens: integer('input_tokens').notNull().default(0),
     outputTokens: integer('output_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
     cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
     reservedTokens: integer('reserved_tokens').notNull().default(0),
-    reservedCostUsd: numeric('reserved_cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
-    measuredCostUsd: numeric('measured_cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    reservedCostUsd: numeric('reserved_cost_usd', { precision: 12, scale: 6 })
+      .notNull()
+      .default('0'),
+    measuredCostUsd: numeric('measured_cost_usd', { precision: 12, scale: 6 })
+      .notNull()
+      .default('0'),
     reconciled: boolean('reconciled').notNull().default(false),
     latencyMs: integer('latency_ms'),
     routeSource: varchar('route_source', { length: 64 }),
@@ -387,6 +441,9 @@ export const modelUsage = pgTable(
       columns: [table.storeId, table.rootRunId],
       foreignColumns: [agentRuns.storeId, agentRuns.runId],
     }).onDelete('cascade'),
+    uniqueIndex('model_usage_store_provider_call_uidx')
+      .on(table.storeId, table.providerCallId)
+      .where(sql`${table.providerCallId} IS NOT NULL`),
   ],
 );
 
@@ -504,3 +561,119 @@ export const agentRunEvents = pgTable(
   ],
 );
 
+/**
+ * FL07-FIX 01 — durable idempotent proposal publication ledger. One row per
+ * (store, idempotency key); concurrent identical requests serialize on the
+ * proposal row lock + unique index; distinct payloads conflict.
+ */
+export const proposalPublications = pgTable(
+  'proposal_publications',
+  {
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => stores.storeId, { onDelete: 'cascade' }),
+    publicationId: uuid('publication_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    proposalId: uuid('proposal_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }),
+    payloadHash: char('payload_hash', { length: 64 }).notNull(),
+    status: text('status').notNull(),
+    experienceRevision: bigint('experience_revision', { mode: 'number' }),
+    contextVersion: bigint('context_version', { mode: 'number' }).notNull(),
+    result: jsonb('result').$type<Record<string, unknown>>().notNull(),
+    retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'proposal_publications_pkey',
+      columns: [table.storeId, table.publicationId],
+    }),
+    uniqueIndex('proposal_publications_idempotency_uidx')
+      .on(table.storeId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
+    foreignKey({
+      name: 'proposal_publications_store_run_fk',
+      columns: [table.storeId, table.runId],
+      foreignColumns: [agentRuns.storeId, agentRuns.runId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'proposal_publications_store_proposal_fk',
+      columns: [table.storeId, table.proposalId],
+      foreignColumns: [actionProposals.storeId, actionProposals.proposalId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'proposal_publications_store_session_fk',
+      columns: [table.storeId, table.sessionId],
+      foreignColumns: [visitorSessions.storeId, visitorSessions.sessionId],
+    }).onDelete('cascade'),
+    index('proposal_publications_run_idx').on(table.storeId, table.runId),
+    index('proposal_publications_proposal_idx').on(table.storeId, table.proposalId),
+    index('proposal_publications_retention_idx').on(table.storeId, table.retentionExpiresAt),
+  ],
+);
+
+/**
+ * FL07-FIX 05 — durable provider admission ledger (PostgreSQL authority for
+ * per-store quotas and provider budget). Valkey remains the fast path.
+ */
+export const providerAdmissionLedger = pgTable(
+  'provider_admission_ledger',
+  {
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => stores.storeId, { onDelete: 'cascade' }),
+    allocationId: uuid('allocation_id').notNull(),
+    purpose: text('purpose').notNull(),
+    provider: text('provider').notNull(),
+    model: varchar('model', { length: 120 }).notNull(),
+    scopeKey: varchar('scope_key', { length: 200 }).notNull(),
+    maxRequests: integer('max_requests').notNull(),
+    maxCostUsd: numeric('max_cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    usedRequests: integer('used_requests').notNull().default(0),
+    usedCostUsd: numeric('used_cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    activeRequests: integer('active_requests').notNull().default(0),
+    authorized: boolean('authorized').notNull().default(false),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'provider_admission_ledger_pkey',
+      columns: [table.storeId, table.allocationId],
+    }),
+    uniqueIndex('provider_admission_ledger_scope_uidx').on(
+      table.storeId,
+      table.purpose,
+      table.scopeKey,
+      table.provider,
+      table.model,
+    ),
+    index('provider_admission_ledger_expiry_idx').on(table.storeId, table.expiresAt),
+  ],
+);
+
+/**
+ * FL07-FIX 10 — distributed abuse protection durable ledger (Valkey fast path).
+ */
+export const abuseLimitEvents = pgTable(
+  'abuse_limit_events',
+  {
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => stores.storeId, { onDelete: 'cascade' }),
+    eventId: uuid('event_id').notNull(),
+    bucketKey: varchar('bucket_key', { length: 200 }).notNull(),
+    bucketWindow: text('bucket_window').notNull(),
+    purpose: text('purpose').notNull(),
+    outcome: text('outcome').notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
+    retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ name: 'abuse_limit_events_pkey', columns: [table.storeId, table.eventId] }),
+    index('abuse_limit_events_bucket_idx').on(table.storeId, table.bucketKey, table.observedAt),
+  ],
+);
